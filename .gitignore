@@ -1,0 +1,12 @@
+.gradle/
+build/
+.kotlin/
+
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# for the local database files
+# MAKE SURE THIS IS CORRECT
+iudex_data*
