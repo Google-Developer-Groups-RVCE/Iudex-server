@@ -15,20 +15,48 @@ This project uses Java 23.
 
 You will need `gradle` to build the project. Install it using a package manager or by following the instructions [here](https://docs.gradle.org/current/userguide/installation.html)
 
+### Configuration
+
+The server reads its settings from the environment.
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `JWT_SECRET` | **yes** | none | Secret used to sign tokens. Must be at least 32 bytes; the server refuses to start otherwise. |
+| `PORT` | no | `8080` | Port to listen on. |
+| `IUDEX_DB_URL` | no | `jdbc:h2:file:./iudex_db` | JDBC url. The default is relative to the working directory, so launched through Gradle it lands in `app/`. The resolved url is logged at startup. |
+| `ALLOWED_ORIGINS` | no | none | Comma separated origins allowed to call the API from a browser, e.g. `http://localhost:5173`. If unset, cross-origin browser requests are refused. |
+
 To build and run:
 ### Windows
 ```
+> set JWT_SECRET=replace-this-with-at-least-32-bytes-of-secret
 > gradlew.bat run
 ```
 
 ### Linux or MacOS
 ```
-> ./gradle run
+> export JWT_SECRET=replace-this-with-at-least-32-bytes-of-secret
+> ./gradlew run
 ```
 
 This project uses Javalin 7. To learn more about it, visit their [documentation page](https://javalin.io/documentation).
 
-To run a clean build,
-```bash
+To run a clean build (compiles, runs the tests, and builds the distribution):
+### Windows
+```
 > gradlew.bat clean build
+```
+
+### Linux or MacOS
+```
+> ./gradlew clean build
+```
+
+To compile without running the tests, use `assemble` in place of `build`.
+
+## Errors
+
+Every error, whatever caused it, comes back with the same shape:
+```json
+{ "error": "Invalid credentials" }
 ```
