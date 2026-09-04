@@ -9,4 +9,4 @@ build/
 
 # for the local database files
 # MAKE SURE THIS IS CORRECT
-iudex_data*
+iudex_db*

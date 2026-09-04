@@ -1,8 +1,12 @@
-## Windows
+Note, you must have an environment variable named JWT_SECRET, which you should set in your terminal before running the command.
+
+## Windows (cmd)
 ```bash
+set JWT_SECRET=thisisaverylongstringitdoesntmatterwhatyouputhere
 gradlew.bat run
 ```
 
+set your env variable first
 ## Linux or MacOS
 ```bash
 ./gradle run
@@ -37,3 +41,25 @@ Or run both
 ```bash
 gradlew.bat check
 ```
+
+Currently, a fake user by the name of alice is injected into the database for testing purposes
+You can test as follows:
+
+login:
+```bash
+curl.exe -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d "{\`"username\`":\`"alice\`", \`"password\`":\`"correct-password\`"}"
+```
+Response:
+{"token":"YOUR_TOKEN_APPEARS_HERE"}
+
+
+logout:
+```bash
+curl.exe -X POST http://localhost:8080/api/auth/logout -H "Authorization: Bearer YOUR_TOKEN_GOES_HERE"
+```
+
+Response:
+{ "message": "Successfully logged out" }
+
+If you try this a second time:
+{"error":"Token has been revoked"}
