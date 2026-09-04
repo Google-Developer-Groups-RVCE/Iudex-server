@@ -23,7 +23,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *  issuesToken - issue properly issues a token
  *  issuedTokenVerifies - issue returns the correct authenticated user
  *  expiredTokenIsRejected - duh
- *  modifiedTokenIsRejected - ...
+ *  modifiedSignatureIsRejected - a tampered signature is refused
+ *  modifiedPayloadIsRejected - tampered claims are refused
  *  tokenSignedWithDifferentKeyIsRejected - name is way too long
  *  malformedTokenIsRejected - ...
  */
@@ -37,15 +38,16 @@ class JwtTokenServiceTest {
                 new Database(
                     "jdbc:h2:mem:jwt_token_service_test");
 
-    private final RevokedTokenDao dao =
-                database.jdbi()
-                    .onDemand(RevokedTokenDao.class);
+    private final RevocationCache cache =
+                new RevocationCache(
+                    database.jdbi()
+                        .onDemand(RevokedTokenDao.class));
 
     private final JwtTokenService tokenService =
         new JwtTokenService(
             TEST_KEY,
             Duration.ofMinutes(15),
-            dao
+            cache
         );
 
     private final User user = new User(
@@ -84,7 +86,7 @@ class JwtTokenServiceTest {
             new JwtTokenService(
                 TEST_KEY,
                 Duration.ofMillis(50),
-                dao
+                cache
             );
 
         String token = shortLivedService.issue(user);
@@ -97,14 +99,42 @@ class JwtTokenServiceTest {
         );
     }
 
+    /*
+     * Tampering must change bits the signature actually covers.
+     * Editing the LAST character of a segment is not enough: a 32 byte
+     * HS256 signature base64url-encodes to 43 characters carrying 258
+     * bits, so the final character's low 2 bits are padding and are
+     * thrown away on decode. 'Y', 'Z', 'a' and 'b' all decode alike
+     * there, which made an earlier version of this test pass or fail
+     * depending on the last character of a randomly generated
+     * signature. The first character of a segment is always fully
+     * significant, so mutating that is deterministic.
+     */
+    private static String tamperWith(String token, int segment) {
+
+        String[] parts = token.split("\\.");
+
+        char first = parts[segment].charAt(0);
+        parts[segment] = (first == 'A' ? 'B' : 'A') + parts[segment].substring(1);
+
+        return String.join(".", parts);
+    }
+
     @Test
-    void modifiedTokenIsRejected() {
+    void modifiedSignatureIsRejected() {
 
-        String token = tokenService.issue(user);
+        String modifiedToken = tamperWith(tokenService.issue(user), 2);
 
-        String modifiedToken =
-            token.substring(0, token.length() - 1)
-            + (token.endsWith("a") ? "b" : "a");
+        assertThrows(
+            Exception.class,
+            () -> tokenService.verify(modifiedToken)
+        );
+    }
+
+    @Test
+    void modifiedPayloadIsRejected() {
+
+        String modifiedToken = tamperWith(tokenService.issue(user), 1);
 
         assertThrows(
             Exception.class,
@@ -125,15 +155,11 @@ class JwtTokenServiceTest {
                 25, 26, 27, 28, 29, 30, 31, 32
             });
 
-        RevokedTokenDao dao =
-            database.jdbi()
-                .onDemand(RevokedTokenDao.class);
-
         JwtTokenService differentService =
             new JwtTokenService(
                 differentKey,
                 Duration.ofMinutes(15),
-                dao
+                cache
             );
 
         assertThrows(

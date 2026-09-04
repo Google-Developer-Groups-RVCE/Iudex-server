@@ -1,5 +1,6 @@
 package gdg.iudex.repositories;
 
+import gdg.iudex.models.Role;
 import gdg.iudex.models.User;
 import org.jdbi.v3.sqlobject.config.RegisterConstructorMapper;
 import org.jdbi.v3.sqlobject.customizer.Bind;
@@ -35,6 +36,12 @@ public interface UserDao {
         @Bind("username") String username
     );
 
+    /*
+     * Takes Role rather than String so a misspelled role is a compile
+     * error here instead of a SQL constraint violation at runtime.
+     * JDBI binds an enum as its name(), which is what the column and
+     * the users_role_check constraint expect.
+     */
     @SqlUpdate("""
         INSERT INTO users (username, password_hash, role)
         VALUES (:username, :passwordHash, :role)
@@ -43,6 +50,6 @@ public interface UserDao {
     long insertUser(
         @Bind("username") String username,
         @Bind("passwordHash") String passwordHash,
-        @Bind("role") String role
+        @Bind("role") Role role
     );
 }

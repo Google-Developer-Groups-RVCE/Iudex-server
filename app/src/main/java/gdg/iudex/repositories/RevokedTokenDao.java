@@ -3,7 +3,9 @@ package gdg.iudex.repositories;
 import org.jdbi.v3.sqlobject.customizer.Bind;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
+
 import java.time.OffsetDateTime;
+import java.util.List;
 
 /**
  *  interface RevokedTokenDao
@@ -12,6 +14,7 @@ import java.time.OffsetDateTime;
  *  
  *  revoke - adds a token to the revoked tokens table
  *  isRevoked - checks if a token has been revoked
+ *  findActiveRevokedJtis - every revocation that still matters
  *  deleteExpiredTokens - clean up the database by removing expired tokens
  */
 
@@ -45,6 +48,20 @@ public interface RevokedTokenDao {
         """)
     boolean isRevoked(
         @Bind("jti") String jti
+    );
+
+    /*
+     * Read once at startup (and after each purge) to populate
+     * RevocationCache. Revocations for already-expired tokens are
+     * skipped because such tokens are rejected on expiry anyway.
+     */
+    @SqlQuery("""
+        SELECT jti
+        FROM revoked_tokens
+        WHERE expires_at > :now
+        """)
+    List<String> findActiveRevokedJtis(
+        @Bind("now") OffsetDateTime now
     );
 
     @SqlUpdate("""

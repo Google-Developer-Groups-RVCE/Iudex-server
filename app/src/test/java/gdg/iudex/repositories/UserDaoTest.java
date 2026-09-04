@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *  Tests:
  *  findByUsername - Check if a manually inserted user can be found by username.
  *  insertUser - test insertUser and whether the inserted user can be found.
+ *  everyRoleRoundTrips - each Role survives a write and a read.
  */
 
 class UserDaoTest {
@@ -90,7 +91,7 @@ class UserDaoTest {
             long id = dao.insertUser(
                 "chandra",
                 "alfreddabuttler",
-                "CONTESTANT"
+                Role.CONTESTANT
             );
 
             assertTrue(id > 0);
@@ -107,6 +108,33 @@ class UserDaoTest {
             assertEquals("alfreddabuttler", user.passwordHash());
             assertEquals(Role.CONTESTANT, user.role());
             assertNotNull(user.createdAt());
+        }
+    }
+
+    @Test
+    void everyRoleRoundTrips() {
+
+        // insertUser takes a Role rather than a String, so a bad role
+        // cannot reach the database at all. This checks the ones that
+        // can still each survive the trip.
+        try (Database database =
+                new Database("jdbc:h2:mem:test_user_dao_roles;DB_CLOSE_DELAY=-1")) {
+
+            UserDao dao = database.jdbi()
+                .onDemand(UserDao.class);
+
+            for (Role role : Role.values()) {
+
+                String username = "user_" + role.name();
+
+                dao.insertUser(username, "hash", role);
+
+                Optional<User> result = dao.findByUsername(username);
+
+                assertTrue(result.isPresent());
+                assertEquals(role, result.get().role(),
+                    "Role " + role + " should come back as it went in");
+            }
         }
     }
 }

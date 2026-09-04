@@ -2,44 +2,72 @@ package gdg.iudex.auth;
 
 import gdg.iudex.models.Role;
 import gdg.iudex.models.User;
-import gdg.iudex.repositories.RevokedTokenDao;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.MacAlgorithm;
 
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.UUID;
 
 public final class JwtTokenService implements TokenService {
 
+    /*
+     * Pinned, not inferred. Keys.hmacShaKeyFor picks HS256/HS384/HS512
+     * purely from how many bytes the secret happens to be, which means
+     * two deployments of identical code could sign with different
+     * algorithms just because someone typed a longer passphrase.
+     */
+    private static final MacAlgorithm ALGORITHM = Jwts.SIG.HS256;
+
+    /** The JCA name for the key HS256 signs with. */
+    private static final String KEY_ALGORITHM = "HmacSHA256";
+
+    /** Shortest JWT_SECRET we accept, in bytes. */
+    public static final int MIN_SECRET_LENGTH = 32;
+
     private final SecretKey signingKey;
     private final Duration tokenLifetime;
-    private final RevokedTokenDao revokedTokenDao;
+    private final RevocationCache revocationCache;
 
     // this constructor is for testing, to avoid a bit of hassle
     public JwtTokenService(
             SecretKey signingKey,
             Duration tokenLifetime,
-            RevokedTokenDao revokedTokenDao) {
+            RevocationCache revocationCache) {
 
         this.signingKey = signingKey;
         this.tokenLifetime = tokenLifetime;
-        this.revokedTokenDao = revokedTokenDao;
+        this.revocationCache = revocationCache;
     }
 
     // this is the constructor you must use in production
     public JwtTokenService(
+            String secret,
             Duration tokenLifetime,
-            RevokedTokenDao revokedTokenDao) {
+            RevocationCache revocationCache) {
 
-        // you must have an env variable called JWT_SECRET in order to use this constructor
-        String secret = System.getenv("JWT_SECRET");
+        this.signingKey = keyFrom(secret);
+        this.tokenLifetime = tokenLifetime;
+        this.revocationCache = revocationCache;
+    }
+
+    /**
+     *  Turns the configured secret into a key of exactly the size the
+     *  pinned algorithm wants.
+     *
+     *  The secret must still be long enough to be worth anything, but
+     *  hashing it means any acceptable secret produces a valid HS256
+     *  key, so secret length can no longer change the algorithm.
+     */
+    private static SecretKey keyFrom(String secret) {
 
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException(
@@ -47,12 +75,26 @@ public final class JwtTokenService implements TokenService {
             );
         }
 
-        this.signingKey = Keys.hmacShaKeyFor(
-            secret.getBytes(StandardCharsets.UTF_8)
-        );
+        byte[] raw = secret.getBytes(StandardCharsets.UTF_8);
 
-        this.tokenLifetime = tokenLifetime;
-        this.revokedTokenDao = revokedTokenDao;
+        if (raw.length < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException(
+                "JWT_SECRET must be at least " + MIN_SECRET_LENGTH
+                + " bytes long, but was " + raw.length
+            );
+        }
+
+        try {
+            byte[] keyBytes = MessageDigest
+                .getInstance("SHA-256")
+                .digest(raw);
+
+            return new SecretKeySpec(keyBytes, KEY_ALGORITHM);
+
+        } catch (NoSuchAlgorithmException e) {
+            // Every JVM is required to ship SHA-256.
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     @Override
@@ -61,15 +103,13 @@ public final class JwtTokenService implements TokenService {
         Instant now = Instant.now();
         Instant expiration = now.plus(tokenLifetime);
 
-        // i really hope this is doing everything that's required
-        // okay at second glance it's just setting all the fields
         return Jwts.builder()
             .subject(Long.toString(user.id()))
             .claim("role", user.role().name())
             .issuedAt(Date.from(now))
             .expiration(Date.from(expiration))
             .id(UUID.randomUUID().toString())
-            .signWith(signingKey)
+            .signWith(signingKey, ALGORITHM)
             .compact();
     }
 
@@ -84,14 +124,21 @@ public final class JwtTokenService implements TokenService {
                 .getPayload();
 
             String jti = claims.getId();
-            if (revokedTokenDao.isRevoked(jti)) {
+
+            // In-memory check, so this costs no database round trip.
+            if (revocationCache.isRevoked(jti)) {
                 throw new AuthenticationException("Token has been revoked");
             }
 
             long userId = Long.parseLong(claims.getSubject());
             Role role = Role.valueOf(claims.get("role", String.class));
 
-            return new AuthenticatedUser(userId, role);
+            return new AuthenticatedUser(
+                userId,
+                role,
+                jti,
+                claims.getExpiration().toInstant()
+            );
 
         } catch (io.jsonwebtoken.JwtException e) {
             throw new AuthenticationException("Invalid or expired token", e);
@@ -99,32 +146,11 @@ public final class JwtTokenService implements TokenService {
     }
 
     @Override
-    public void revoke(String token) {
-        Claims claims;
-        try {
-            claims = Jwts.parser()
-                .verifyWith(signingKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-                
-        } catch (io.jsonwebtoken.ExpiredJwtException e) {
-            // if expired, you add to revocation list
-            claims = e.getClaims();
-            
-        } catch (io.jsonwebtoken.JwtException e) {
-            // invalid token
-            throw new AuthenticationException("Cannot revoke invalid token", e);
-        }
-
-        String jti = claims.getId();
-        long userId = Long.parseLong(claims.getSubject());
-        Instant expiration = claims.getExpiration().toInstant();
-
-        revokedTokenDao.revoke(
-            jti,
-            userId,
-            expiration.atOffset(ZoneOffset.UTC)
+    public void revoke(AuthenticatedUser user) {
+        revocationCache.revoke(
+            user.tokenId(),
+            user.userId(),
+            user.expiresAt()
         );
     }
 }

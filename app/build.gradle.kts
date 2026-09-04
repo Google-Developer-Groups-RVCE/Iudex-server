@@ -26,6 +26,10 @@ dependencies {
     // db migrations
     implementation("org.flywaydb:flyway-core:10.17.1")
 
+    // logging: the api we compile against, plus something to print it
+    implementation("org.slf4j:slf4j-api:2.0.16")
+    runtimeOnly("org.slf4j:slf4j-simple:2.0.16")
+
     // Argon2id and jwt
     implementation("com.password4j:password4j:1.8.2")
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -34,6 +38,11 @@ dependencies {
 
     // for testing
     testImplementation("io.javalin:javalin-testtools:7.2.3")
+
+    // so tests can assert on parsed JSON rather than exact formatting.
+    // it arrives through javalin anyway, declared here because we use
+    // it directly and should not rely on someone else's transitive.
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
 }
 
 // i kinda figured out testing

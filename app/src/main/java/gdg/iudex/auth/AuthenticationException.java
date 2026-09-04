@@ -1,24 +1,30 @@
 package gdg.iudex.auth;
 
+import gdg.iudex.errors.ApiException;
+
 /**
  *  AuthenticationException
- *  
- *  A kind of runtimeException.
- *  Just includes constructors for whatever usage.
+ *
+ *  "We do not know who you are."
+ *
+ *  Always reported as 401. The message is deliberately vague on the
+ *  login path so it cannot be used to tell a missing user apart from
+ *  a wrong password.
  */
 
-public final class AuthenticationException
-        extends RuntimeException {
+public final class AuthenticationException extends ApiException {
 
     public AuthenticationException() {
-        super("Invalid credentials");
+        this("Invalid credentials");
     }
 
-    public AuthenticationException(String s) {
-        super(s);
+    public AuthenticationException(String message) {
+        super(401, message);
     }
 
-    public AuthenticationException(String s, io.jsonwebtoken.JwtException e) {
-        super(s, e);
+    // Takes Throwable rather than a library-specific type so the
+    // token implementation stays hidden from everything above it.
+    public AuthenticationException(String message, Throwable cause) {
+        super(401, message, cause);
     }
 }
