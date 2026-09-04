@@ -26,6 +26,25 @@ The server reads its settings from the environment.
 | `IUDEX_DB_URL` | no | `jdbc:h2:file:./iudex_db` | JDBC url. The default is relative to the working directory, so launched through Gradle it lands in `app/`. The resolved url is logged at startup. |
 | `ALLOWED_ORIGINS` | no | none | Comma separated origins allowed to call the API from a browser, e.g. `http://localhost:5173`. If unset, cross-origin browser requests are refused. |
 
+There is a `.env.example` template listing all four. Copy it and fill it in:
+
+```bash
+cp .env.example .env
+```
+
+Nothing reads `.env` on its own, so load it into your shell first.
+
+```bash
+# macOS / Linux
+set -a; source .env; set +a
+
+# Windows PowerShell
+Get-Content .env | Where-Object { $_ -match '^\s*[^#\s]' } | ForEach-Object {
+    $name, $value = $_ -split '=', 2
+    Set-Item -Path "env:$name" -Value $value
+}
+```
+
 To build and run:
 ### Windows
 ```
