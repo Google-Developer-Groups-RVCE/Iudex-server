@@ -1,5 +1,7 @@
 .gradle/
 build/
+bin/
+out/
 .kotlin/
 
 .idea/
@@ -8,5 +10,18 @@ build/
 .DS_Store
 
 # for the local database files
-# MAKE SURE THIS IS CORRECT
-iudex_db*
+# the database name is configurable through IUDEX_DB_URL, so match any
+# H2 file rather than one hardcoded name. An earlier "iudex_db*" missed
+# iudex_data.mv.db and it got committed.
+*.mv.db
+*.trace.db
+*.lock.db
+
+# local secrets. JWT_SECRET and friends belong in the environment, and
+# a .env file is where people usually park them
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
