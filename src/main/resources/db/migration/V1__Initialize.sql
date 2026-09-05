@@ -34,7 +34,7 @@ create table users (
     user_id uuid not null,
     password_hash varchar(255) not null,
     username varchar(255) not null unique,
-    role enum ('ADMIN','HOST','USER') not null,
+    role enum ('ADMIN','HOST','PARTICIPANT') not null,
     primary key (user_id)
 );
 

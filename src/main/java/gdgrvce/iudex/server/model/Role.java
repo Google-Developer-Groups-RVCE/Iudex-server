@@ -1,7 +1,7 @@
 package gdgrvce.iudex.server.model;
 
 public enum Role {
-    USER,
+    PARTICIPANT,
     HOST,
     ADMIN
 }
