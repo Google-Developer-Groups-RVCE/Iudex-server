@@ -52,6 +52,17 @@ public class FileStorageService {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
 
+    /** Returns whether the contest has a directory in file storage. */
+    public boolean contestExists(Contest contest) {
+        UUID contestId = contestId(contest);
+        return Files.isDirectory(contestDirectory(contestId));
+    }
+
+    /** Returns whether the problem has a directory in file storage. */
+    public boolean problemExists(Contest contest, Problem problem) {
+        return Files.isDirectory(problemDirectory(contest, problem));
+    }
+
     /**
      * Creates a problem directory and its initial files. The template starts
      * empty, and both testcase files start as empty JSON arrays.
@@ -142,10 +153,9 @@ public class FileStorageService {
     }
 
     private Path problemDirectory(Contest contest, Problem problem) {
-        Objects.requireNonNull(contest, "contest must not be null");
         Objects.requireNonNull(problem, "problem must not be null");
 
-        UUID contestId = Objects.requireNonNull(contest.getContestId(), "contest ID must not be null");
+        UUID contestId = contestId(contest);
         ProblemId problemId = Objects.requireNonNull(problem.getProblemId(), "problem ID must not be null");
         if (!contestId.equals(problemId.getContestId())) {
             throw new IllegalArgumentException("problem does not belong to the supplied contest");
@@ -154,9 +164,18 @@ public class FileStorageService {
             throw new IllegalArgumentException("problem number must be positive");
         }
 
-        return storageRoot.resolve(contestId.toString())
+        return contestDirectory(contestId)
                 .resolve(Integer.toString(problemId.getProblemNum()))
                 .normalize();
+    }
+
+    private UUID contestId(Contest contest) {
+        Objects.requireNonNull(contest, "contest must not be null");
+        return Objects.requireNonNull(contest.getContestId(), "contest ID must not be null");
+    }
+
+    private Path contestDirectory(UUID contestId) {
+        return storageRoot.resolve(contestId.toString()).normalize();
     }
 
     private void delete(Path path) {
