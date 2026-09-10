@@ -11,10 +11,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-
 import gdgrvce.iudex.server.model.Contest;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
+import gdgrvce.iudex.server.model.TestCase;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -63,12 +63,26 @@ public class FileStorageService {
         return Files.isDirectory(problemDirectory(contest, problem));
     }
 
+    /** Creates an empty contest directory. */
+    public void createContest(Contest contest) throws IOException {
+        Path contestDirectory = contestDirectory(contestId(contest));
+        if (Files.exists(contestDirectory)) {
+            throw new IllegalStateException("contest already exists in file storage");
+        }
+        Files.createDirectories(storageRoot);
+        Files.createDirectory(contestDirectory);
+    }
+
     /**
      * Creates a problem directory and its initial files. The template starts
      * empty, and both testcase files start as empty JSON arrays.
      */
     public void createProblemFiles(Contest contest, Problem problem, String statement) throws IOException {
+        requireContestExists(contest);
         Path problemDirectory = problemDirectory(contest, problem);
+        if (Files.exists(problemDirectory)) {
+            throw new IllegalStateException("problem already exists in file storage");
+        }
         Files.createDirectories(problemDirectory);
 
         Files.writeString(problemDirectory.resolve(STATEMENT_FILE), statement, StandardCharsets.UTF_8);
@@ -79,12 +93,14 @@ public class FileStorageService {
 
     /** Replaces the problem statement. */
     public void saveStatement(Contest contest, Problem problem, String statement) throws IOException {
+        requireProblemExists(contest, problem);
         Files.writeString(problemDirectory(contest, problem).resolve(STATEMENT_FILE), statement,
                 StandardCharsets.UTF_8);
     }
 
     /** Replaces the template solution. */
     public void saveTemplateSolution(Contest contest, Problem problem, String template) throws IOException {
+        requireProblemExists(contest, problem);
         Files.writeString(problemDirectory(contest, problem).resolve(TEMPLATE_FILE), template,
                 StandardCharsets.UTF_8);
     }
@@ -124,10 +140,17 @@ public class FileStorageService {
     /** Deletes all stored files for a problem. */
     public void deleteProblem(Contest contest, Problem problem) throws IOException {
         Path problemDirectory = problemDirectory(contest, problem);
-        if (Files.notExists(problemDirectory)) {
-            return;
-        }
+        requireProblemExists(contest, problem);
         try (var paths = Files.walk(problemDirectory)) {
+            paths.sorted((first, second) -> second.compareTo(first)).forEach(path -> delete(path));
+        }
+    }
+
+    /** Deletes a contest directory and all of its stored problems. */
+    public void deleteContest(Contest contest) throws IOException {
+        Path contestDirectory = contestDirectory(contestId(contest));
+        requireContestExists(contest);
+        try (var paths = Files.walk(contestDirectory)) {
             paths.sorted((first, second) -> second.compareTo(first)).forEach(path -> delete(path));
         }
     }
@@ -135,8 +158,8 @@ public class FileStorageService {
     private void saveTestCases(Contest contest, Problem problem, String fileName, List<TestCase> testCases)
             throws IOException {
         Objects.requireNonNull(testCases, "testCases must not be null");
+        requireProblemExists(contest, problem);
         Path problemDirectory = problemDirectory(contest, problem);
-        Files.createDirectories(problemDirectory);
         writeTestCases(problemDirectory.resolve(fileName), testCases);
     }
 
@@ -176,6 +199,18 @@ public class FileStorageService {
 
     private Path contestDirectory(UUID contestId) {
         return storageRoot.resolve(contestId.toString()).normalize();
+    }
+
+    private void requireContestExists(Contest contest) {
+        if (!contestExists(contest)) {
+            throw new IllegalStateException("contest does not exist in file storage");
+        }
+    }
+
+    private void requireProblemExists(Contest contest, Problem problem) {
+        if (!problemExists(contest, problem)) {
+            throw new IllegalStateException("problem does not exist in file storage");
+        }
     }
 
     private void delete(Path path) {

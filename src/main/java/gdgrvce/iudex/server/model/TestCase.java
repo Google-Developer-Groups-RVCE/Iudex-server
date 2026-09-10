@@ -1,4 +1,4 @@
-package gdgrvce.iudex.server.service;
+package gdgrvce.iudex.server.model;
 
 import java.util.Objects;
 
