@@ -56,6 +56,22 @@ class FileStorageServiceTests {
     }
 
     @Test
+    void removesTemporaryProblemDirectoryWhenCreationFails() throws Exception {
+        FileStorageService service = service();
+        Contest contest = contest();
+        Problem problem = problem(contest, 1);
+
+        service.createContest(contest);
+
+        assertThrows(NullPointerException.class,
+                () -> service.createProblemFiles(contest, problem, null));
+
+        Path contestDirectory = temporaryDirectory.resolve(contest.getContestId().toString());
+        assertFalse(Files.exists(contestDirectory.resolve("1")));
+        assertFalse(Files.exists(contestDirectory.resolve("temp_1")));
+    }
+
+    @Test
     void requiresExistingContestAndProblemForWrites() {
         FileStorageService service = service();
         Contest contest = contest();

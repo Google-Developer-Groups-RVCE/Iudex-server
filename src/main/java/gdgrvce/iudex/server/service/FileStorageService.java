@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -74,8 +76,11 @@ public class FileStorageService {
     }
 
     /**
-     * Creates a problem directory and its initial files. The template starts
-     * empty, and both testcase files start as empty JSON arrays.
+     * Creates a problem directory and its initial files atomically. Files are
+     * written to a temporary directory first, then the completed directory is
+     * atomically moved to the problem directory. The template starts empty,
+     * and both testcase files start as empty JSON arrays. A failed creation
+     * removes the temporary directory and leaves no problem directory behind.
      */
     public void createProblemFiles(Contest contest, Problem problem, String statement) throws IOException {
         requireContestExists(contest);
@@ -83,12 +88,23 @@ public class FileStorageService {
         if (Files.exists(problemDirectory)) {
             throw new IllegalStateException("problem already exists in file storage");
         }
-        Files.createDirectories(problemDirectory);
-
-        Files.writeString(problemDirectory.resolve(STATEMENT_FILE), statement, StandardCharsets.UTF_8);
-        Files.writeString(problemDirectory.resolve(TEMPLATE_FILE), "", StandardCharsets.UTF_8);
-        writeTestCases(problemDirectory.resolve(SAMPLE_TEST_CASES_FILE), List.of());
-        writeTestCases(problemDirectory.resolve(HIDDEN_TEST_CASES_FILE), List.of());
+        Path temporaryDirectory = problemDirectory.resolveSibling(
+                "temp_" + problem.getProblemId().getProblemNum());
+        Files.createDirectory(temporaryDirectory);
+        try {
+            Files.writeString(temporaryDirectory.resolve(STATEMENT_FILE), statement, StandardCharsets.UTF_8);
+            Files.writeString(temporaryDirectory.resolve(TEMPLATE_FILE), "", StandardCharsets.UTF_8);
+            writeTestCases(temporaryDirectory.resolve(SAMPLE_TEST_CASES_FILE), List.of());
+            writeTestCases(temporaryDirectory.resolve(HIDDEN_TEST_CASES_FILE), List.of());
+            Files.move(temporaryDirectory, problemDirectory, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException | RuntimeException exception) {
+            try {
+                deleteDirectory(temporaryDirectory);
+            } catch (IOException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+            throw exception;
+        }
     }
 
     /** Replaces the problem statement. */
@@ -173,6 +189,20 @@ public class FileStorageService {
     private void writeTestCases(Path file, List<TestCase> testCases) throws IOException {
         Files.writeString(file, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(testCases),
                 StandardCharsets.UTF_8);
+    }
+
+    private void deleteDirectory(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+        List<Path> paths;
+        try (var stream = Files.walk(directory)) {
+            paths = new ArrayList<>(stream.toList());
+        }
+        paths.sort((first, second) -> second.compareTo(first));
+        for (Path path : paths) {
+            Files.deleteIfExists(path);
+        }
     }
 
     private Path problemDirectory(Contest contest, Problem problem) {
