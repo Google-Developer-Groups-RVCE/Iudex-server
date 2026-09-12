@@ -3,6 +3,7 @@ package gdgrvce.iudex.server.service;
 import gdgrvce.iudex.server.dto.AuthResponse;
 import gdgrvce.iudex.server.dto.LoginRequest;
 import gdgrvce.iudex.server.dto.RegisterRequest;
+import gdgrvce.iudex.server.exception.UsernameAlreadyExistsException;
 import gdgrvce.iudex.server.model.Role;
 import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.UserRepository;

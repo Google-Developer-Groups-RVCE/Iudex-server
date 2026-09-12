@@ -1,6 +1,6 @@
 package gdgrvce.iudex.server.controller;
 
-import gdgrvce.iudex.server.service.UsernameAlreadyExistsException;
+import gdgrvce.iudex.server.exception.UsernameAlreadyExistsException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
