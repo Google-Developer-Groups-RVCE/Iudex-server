@@ -32,7 +32,7 @@ class FileStorageServiceTests {
         service.createContest(contest);
         service.createProblemFiles(contest, problem, "Add two numbers");
 
-        Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString()).resolve("1");
+        Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString()).resolve(problem.getProblemUuid().toString());
         assertTrue(service.contestExists(contest));
         assertTrue(service.problemExists(contest, problem));
         assertEquals("Add two numbers", Files.readString(problemDirectory.resolve("statement.txt")));
@@ -67,8 +67,8 @@ class FileStorageServiceTests {
                 () -> service.createProblemFiles(contest, problem, null));
 
         Path contestDirectory = temporaryDirectory.resolve(contest.getContestId().toString());
-        assertFalse(Files.exists(contestDirectory.resolve("1")));
-        assertFalse(Files.exists(contestDirectory.resolve("temp_1")));
+        assertFalse(Files.exists(contestDirectory.resolve(problem.getProblemUuid().toString())));
+        assertFalse(Files.exists(contestDirectory.resolve("temp_" + problem.getProblemUuid())));
     }
 
     @Test
@@ -120,6 +120,61 @@ class FileStorageServiceTests {
         assertThrows(IllegalStateException.class, () -> service.deleteContest(contest));
     }
 
+    @Test
+    void testcaseIdentifiersSurviveTheJsonRoundTrip() throws Exception {
+        FileStorageService service = service();
+        Contest contest = contest();
+        Problem problem = problem(contest, 1);
+        TestCase sample = new TestCase("1 2", "3");
+        TestCase hidden = new TestCase("10 20", "30");
+
+        service.createContest(contest);
+        service.createProblemFiles(contest, problem, "statement");
+        service.saveSampleTestCases(contest, problem, List.of(sample));
+        service.saveHiddenTestCases(contest, problem, List.of(hidden));
+
+        TestCase readSample = service.readSampleTestCases(contest, problem).get(0);
+        TestCase readHidden = service.readHiddenTestCases(contest, problem).get(0);
+        assertEquals(sample.id(), readSample.id());
+        assertEquals("1 2", readSample.input());
+        assertEquals("3", readSample.output());
+        assertEquals(hidden.id(), readHidden.id());
+    }
+
+    @Test
+    void rewritingTestcasesReplacesRatherThanAppends() throws Exception {
+        FileStorageService service = service();
+        Contest contest = contest();
+        Problem problem = problem(contest, 1);
+
+        service.createContest(contest);
+        service.createProblemFiles(contest, problem, "statement");
+        service.saveHiddenTestCases(contest, problem, List.of(new TestCase("1", "1"), new TestCase("2", "2")));
+
+        TestCase replacement = new TestCase("9", "9");
+        service.saveHiddenTestCases(contest, problem, List.of(replacement));
+
+        List<TestCase> stored = service.readHiddenTestCases(contest, problem);
+        assertEquals(1, stored.size());
+        assertEquals(replacement.id(), stored.get(0).id());
+    }
+
+    @Test
+    void keepsExpectedOutputOutOfTheSampleFileWhenOnlyHiddenCasesAreSaved() throws Exception {
+        FileStorageService service = service();
+        Contest contest = contest();
+        Problem problem = problem(contest, 1);
+
+        service.createContest(contest);
+        service.createProblemFiles(contest, problem, "statement");
+        service.saveHiddenTestCases(contest, problem, List.of(new TestCase("secret in", "secret out")));
+
+        Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString())
+                .resolve(problem.getProblemUuid().toString());
+        assertFalse(Files.readString(problemDirectory.resolve("sample_testcases.json")).contains("secret out"));
+        assertTrue(Files.readString(problemDirectory.resolve("hidden_testcases.json")).contains("secret out"));
+    }
+
     private FileStorageService service() {
         return new FileStorageService(temporaryDirectory, new ObjectMapper());
     }
@@ -136,6 +191,7 @@ class FileStorageServiceTests {
         problemId.setContestId(contest.getContestId());
         problemId.setProblemNum(problemNumber);
         problem.setProblemId(problemId);
+        problem.setProblemUuid(UUID.randomUUID());
         problem.setContest(contest);
         return problem;
     }

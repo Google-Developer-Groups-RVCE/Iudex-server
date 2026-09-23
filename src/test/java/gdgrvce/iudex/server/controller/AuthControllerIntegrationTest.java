@@ -35,7 +35,7 @@ class AuthControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.username").value("reg_user"))
-                .andExpect(jsonPath("$.role").value("PARTICIPANT"));
+                .andExpect(jsonPath("$.role").value("CONTESTANT"));
     }
 
     @Test
@@ -78,7 +78,7 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("me_user"))
-                .andExpect(jsonPath("$.role").value("PARTICIPANT"));
+                .andExpect(jsonPath("$.role").value("CONTESTANT"));
     }
 
     private String register(String username, String password) throws Exception {
