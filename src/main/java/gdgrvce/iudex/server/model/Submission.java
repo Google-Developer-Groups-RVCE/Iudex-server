@@ -21,11 +21,14 @@ public class Submission {
     @JoinColumn(name = "user_id")
     User user;
 
+    // Column order matches ProblemId's field order: contestId, then problemNum.
+    // referencedColumnName is deliberately omitted -- Problem's own id is itself
+    // derived via @MapsId, so those columns are not resolvable at this point.
     @MapsId("problemId")
     @ManyToOne
     @JoinColumns({
-            @JoinColumn(name = "problem_num", referencedColumnName = "problem_num"),
-            @JoinColumn(name = "contest_id", referencedColumnName = "contest_id")
+            @JoinColumn(name = "contest_id"),
+            @JoinColumn(name = "problem_num")
     })
     Problem problem;
 
