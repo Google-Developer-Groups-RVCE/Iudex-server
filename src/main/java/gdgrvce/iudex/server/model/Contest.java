@@ -25,25 +25,7 @@ public class Contest {
     @Column(nullable = false)
     private UUID hostId;
 
-    // dont store this in DB
-    @Transient
-    private ContestStatus status;
-
     public Contest(){}
-
-    // calculate contest status dynamically
-    public ContestStatus getStatus() {
-        OffsetDateTime now = OffsetDateTime.now();
-        if (now.isBefore(startTime)) {
-            return ContestStatus.UPCOMING;
-        } else if(now.isAfter(endTime.plusHours(24))) {
-            return ContestStatus.ARCHIVED;
-        } else if (now.isAfter(endTime)) {
-            return ContestStatus.FINISHED;
-        } else {
-            return ContestStatus.ONGOING;
-        }
-    }
 
     public UUID getContestId() {
         return contestId;

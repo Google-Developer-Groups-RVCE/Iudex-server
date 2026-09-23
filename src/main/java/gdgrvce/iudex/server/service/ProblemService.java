@@ -4,7 +4,7 @@ import gdgrvce.iudex.server.dto.ProblemRequest;
 import gdgrvce.iudex.server.dto.ProblemResponse;
 import gdgrvce.iudex.server.dto.ProblemSummary;
 import gdgrvce.iudex.server.dto.TestCaseData;
-import gdgrvce.iudex.server.dto.TestCaseInput;
+import gdgrvce.iudex.server.dto.EncryptedTestCase;
 import gdgrvce.iudex.server.dto.TestCaseUploadRequest;
 import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.model.Contest;
@@ -15,6 +15,7 @@ import gdgrvce.iudex.server.model.TestCase;
 import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.ProblemRepository;
 import gdgrvce.iudex.server.repository.SubmissionRepository;
+import gdgrvce.iudex.server.security.TestCaseCipher;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,15 +41,18 @@ public class ProblemService {
     private final ProblemRepository problemRepository;
     private final SubmissionRepository submissionRepository;
     private final FileStorageService fileStorageService;
+    private final TestCaseCipher cipher;
     private final ContestAccessService access;
 
     public ProblemService(ProblemRepository problemRepository,
                           SubmissionRepository submissionRepository,
                           FileStorageService fileStorageService,
+                          TestCaseCipher cipher,
                           ContestAccessService access) {
         this.problemRepository = problemRepository;
         this.submissionRepository = submissionRepository;
         this.fileStorageService = fileStorageService;
+        this.cipher = cipher;
         this.access = access;
     }
 
@@ -180,30 +184,37 @@ public class ProblemService {
 
     /**
      * Returns every test case input for the problem, sample and hidden alike,
-     * with no expected output.
+     * encrypted for the judging client and with no expected output.
      *
      * <p>The return type carries no output component, so expected output cannot
-     * be exposed here by adding a field or a query parameter.</p>
+     * be exposed here by adding a field or a query parameter. Encryption keeps
+     * the inputs from being read straight off the API by anything that is not
+     * the client; the outputs the client reports are graded server-side in
+     * {@code SubmissionService}.</p>
      */
     @Transactional(readOnly = true)
-    public List<TestCaseInput> testInputs(UUID problemUuid, UserDetails principal) {
+    public List<EncryptedTestCase> testInputs(UUID problemUuid, UserDetails principal) {
         User user = access.currentUser(principal);
         Problem problem = access.requireProblem(problemUuid);
         Contest contest = problem.getContest();
         access.requireProblemReadable(contest, user);
 
-        List<TestCaseInput> inputs = new ArrayList<>();
+        List<EncryptedTestCase> inputs = new ArrayList<>();
         try {
             for (TestCase testCase : fileStorageService.readSampleTestCases(contest, problem)) {
-                inputs.add(new TestCaseInput(testCase.id(), testCase.input()));
+                inputs.add(encrypted(testCase));
             }
             for (TestCase testCase : fileStorageService.readHiddenTestCases(contest, problem)) {
-                inputs.add(new TestCaseInput(testCase.id(), testCase.input()));
+                inputs.add(encrypted(testCase));
             }
         } catch (IOException exception) {
             throw new StorageException("Unable to read test cases", exception);
         }
         return inputs;
+    }
+
+    private EncryptedTestCase encrypted(TestCase testCase) {
+        return new EncryptedTestCase(testCase.id(), cipher.encrypt(testCase.input()));
     }
 
     /** Replaces both test case collections and refreshes the stored count. */

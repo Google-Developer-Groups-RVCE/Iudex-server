@@ -1,13 +1,24 @@
 package gdgrvce.iudex.server.model;
 
 import jakarta.persistence.*;
+import org.springframework.data.domain.Persistable;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+/**
+ * One graded attempt at a problem.
+ *
+ * <p>Submissions are append-only: nothing ever edits one, so {@link #isNew()}
+ * is unconditionally true. Without that, Spring Data would see the assigned
+ * composite key, treat the entity as detached, and save it with {@code merge},
+ * which turns a duplicate attempt number into a silent overwrite of an earlier
+ * submission. Forcing {@code persist} makes the collision fail on the primary
+ * key instead, where the caller can see it.</p>
+ */
 @Entity
 @Table(name = "submission")
-public class Submission {
+public class Submission implements Persistable<SubmissionId> {
     @EmbeddedId
     public SubmissionId submissionId;
 
@@ -44,6 +55,19 @@ public class Submission {
     // never influence a verdict or a ranking.
     @Column
     private Integer clientDurationMs;
+
+    @Override
+    @Transient
+    public SubmissionId getId() {
+        return submissionId;
+    }
+
+    /** Always true: a submission is inserted once and never updated. */
+    @Override
+    @Transient
+    public boolean isNew() {
+        return true;
+    }
 
     public SubmissionId getSubmissionId() {
         return submissionId;

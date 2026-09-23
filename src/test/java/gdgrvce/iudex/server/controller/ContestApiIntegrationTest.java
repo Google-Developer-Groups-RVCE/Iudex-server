@@ -8,6 +8,7 @@ import gdgrvce.iudex.server.model.Role;
 import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.UserRepository;
 import gdgrvce.iudex.server.security.JwtService;
+import gdgrvce.iudex.server.security.TestCaseCipher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,13 +17,17 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -54,6 +59,9 @@ class ContestApiIntegrationTest {
     @Autowired
     private JwtService jwtService;
 
+    @Autowired
+    private TestCaseCipher cipher;
+
     // ---------- contest CRUD ----------
 
     @Test
@@ -64,7 +72,8 @@ class ContestApiIntegrationTest {
         mockMvc.perform(get("/api/contests/" + contestId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contestName").value("Autumn Cup"))
-                .andExpect(jsonPath("$.status").value("UPCOMING"));
+                .andExpect(jsonPath("$.startTime").isNotEmpty())
+                .andExpect(jsonPath("$.endTime").isNotEmpty());
 
         mockMvc.perform(patch("/api/contests/" + contestId)
                         .header("Authorization", "Bearer " + token)
@@ -210,7 +219,7 @@ class ContestApiIntegrationTest {
     // ---------- test data confidentiality ----------
 
     @Test
-    void testEndpointReturnsInputsAndNeverExpectedOutput() throws Exception {
+    void testEndpointEncryptsInputsAndNeverCarriesExpectedOutput() throws Exception {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Confidential Cup", plusHours(1), plusHours(3));
@@ -222,13 +231,52 @@ class ContestApiIntegrationTest {
         MvcResult result = mockMvc.perform(get("/api/problems/" + problemId + "/tests")
                         .header("Authorization", "Bearer " + contestant))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].inputData").value("sample in"))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].encryptedInput").isNotEmpty())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString();
-        assertTrue(body.contains("hidden in"), "hidden inputs should be delivered to the client");
+        assertFalse(body.contains("sample in"), "inputs must not travel in the clear");
+        assertFalse(body.contains("hidden in"), "inputs must not travel in the clear");
         assertFalse(body.contains(SECRET_OUTPUT), "expected output must never reach a contestant");
         assertFalse(body.contains("sample out"), "no output field belongs in this response");
+
+        // The client holds the key, so both inputs are there to be recovered.
+        List<String> inputs = decryptedInputs(body);
+        assertTrue(inputs.contains("sample in"), "the sample input should reach the client");
+        assertTrue(inputs.contains("hidden in"), "the hidden input should reach the client");
+    }
+
+    @Test
+    void encryptedInputsAreIndistinguishableBetweenSampleAndHiddenCases() throws Exception {
+        String owner = tokenFor(Role.CONTESTMASTER);
+        String contestant = tokenFor(Role.CONTESTANT);
+        String contestId = createContest(owner, "Uniform Cup", plusHours(1), plusHours(3));
+        String problemId = addProblem(owner, contestId, "Uniform");
+
+        // Identical inputs in both collections still encrypt differently, so a
+        // contestant cannot tell which cases repeat or which are the samples.
+        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+                        .header("Authorization", "Bearer " + owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new TestCaseUploadRequest(
+                                List.of(new TestCaseData("same in", "a")),
+                                List.of(new TestCaseData("same in", "b"))))))
+                .andExpect(status().isOk());
+        register(contestant, contestId);
+        startContestNow(owner, contestId);
+
+        MvcResult result = mockMvc.perform(get("/api/problems/" + problemId + "/tests")
+                        .header("Authorization", "Bearer " + contestant))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode cases = objectMapper.readTree(result.getResponse().getContentAsString());
+        assertEquals(2, cases.size());
+        assertNotEquals(cases.get(0).get("encryptedInput").asString(),
+                cases.get(1).get("encryptedInput").asString());
+        assertEquals(List.of("same in", "same in"),
+                decryptedInputs(result.getResponse().getContentAsString()));
     }
 
     @Test
@@ -369,7 +417,7 @@ class ContestApiIntegrationTest {
     private User saveUser(Role role) {
         User user = new User();
         user.setUsername("user_" + UUID.randomUUID());
-        user.setPasswordHash(passwordEncoder.encode("pw12345"));
+        user.setPasswordHash(passwordEncoder.encode("pw123456"));
         user.setRole(role);
         return userRepository.save(user);
     }
@@ -427,6 +475,16 @@ class ContestApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new ContestRequest(null, plusHours(-1), null))))
                 .andExpect(status().isOk());
+    }
+
+    /** Reads the delivered test inputs the way the judging client would. */
+    private List<String> decryptedInputs(String body) throws Exception {
+        JsonNode cases = objectMapper.readTree(body);
+        List<String> inputs = new ArrayList<>();
+        for (int index = 0; index < cases.size(); index++) {
+            inputs.add(cipher.decrypt(cases.get(index).get("encryptedInput").asString()));
+        }
+        return inputs;
     }
 
     private String field(MvcResult result, String name) throws Exception {

@@ -27,6 +27,7 @@ import java.util.UUID;
  *
  * <ul>
  *   <li>Register: before the contest ends.</li>
+ *   <li>Submit: while the contest is running, registered contestants only.</li>
  *   <li>Edit problems and test cases: before the contest starts.</li>
  *   <li>Read problems: once the contest has started.</li>
  *   <li>Delete: at any time.</li>
@@ -87,6 +88,13 @@ public class ContestAccessService {
         }
     }
 
+    /** Guards the endpoints that only an administrator may reach. */
+    public void requireAdmin(User user) {
+        if (!isAdmin(user)) {
+            throw new ForbiddenOperationException("Administrator access required");
+        }
+    }
+
     /** Allows only a contestmaster or administrator to create contests. */
     public void requireCanCreateContests(User user) {
         if (user.getRole() == Role.CONTESTANT) {
@@ -127,6 +135,30 @@ public class ContestAccessService {
     public void requireProblemsEditable(Contest contest) {
         if (!OffsetDateTime.now().isBefore(contest.getStartTime())) {
             throw new ContestStateException("Problems cannot be changed once the contest has started");
+        }
+    }
+
+    /**
+     * Submissions come only from a registered contestant, and only while the
+     * contest is actually running.
+     *
+     * <p>Unlike reading a problem, this has no exemption for the contestmaster
+     * or an administrator: holding the answers disqualifies you from competing,
+     * and the window is the window.</p>
+     */
+    public void requireSubmissionAllowed(Contest contest, User user) {
+        if (owns(contest, user)) {
+            throw new ForbiddenOperationException("The contestmaster cannot submit to their own contest");
+        }
+        if (!isRegistered(contest, user)) {
+            throw new ForbiddenOperationException("You are not registered for this contest");
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        if (now.isBefore(contest.getStartTime())) {
+            throw new ContestStateException("This contest has not started yet");
+        }
+        if (!now.isBefore(contest.getEndTime())) {
+            throw new ContestStateException("This contest has finished");
         }
     }
 

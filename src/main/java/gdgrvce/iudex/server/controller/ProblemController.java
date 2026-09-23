@@ -2,7 +2,7 @@ package gdgrvce.iudex.server.controller;
 
 import gdgrvce.iudex.server.dto.ProblemRequest;
 import gdgrvce.iudex.server.dto.ProblemResponse;
-import gdgrvce.iudex.server.dto.TestCaseInput;
+import gdgrvce.iudex.server.dto.EncryptedTestCase;
 import gdgrvce.iudex.server.dto.TestCaseUploadRequest;
 import gdgrvce.iudex.server.service.ProblemService;
 import org.springframework.http.ResponseEntity;
@@ -54,9 +54,9 @@ public class ProblemController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Test inputs only. Expected output is not part of the response type. */
+    /** Encrypted test inputs only. Expected output is not part of the response type. */
     @GetMapping("/{problemId}/tests")
-    public List<TestCaseInput> tests(@PathVariable UUID problemId,
+    public List<EncryptedTestCase> tests(@PathVariable UUID problemId,
                                      @AuthenticationPrincipal UserDetails principal) {
         return problemService.testInputs(problemId, principal);
     }

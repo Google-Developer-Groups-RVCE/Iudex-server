@@ -3,23 +3,28 @@ package gdgrvce.iudex.server.security;
 import gdgrvce.iudex.server.model.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
-import java.util.Base64;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.Date;
 
 /** Creates and checks the JWTs used to keep users signed in. */
 @Service
 public class JwtService {
+
+    /** HS256 needs a key at least as long as its 256-bit output. */
+    private static final int KEY_BYTES = 32;
+
     private final SecretKey signingKey;
     private final long expirationMs;
 
-    public JwtService(@Value("${jwt.secret}") String secret,
-                      @Value("${jwt.expiration-ms}") long expirationMs) {
-        this.signingKey = Keys.hmacShaKeyFor(Base64.getDecoder().decode(secret));
+    /** A blank secret is replaced by a throwaway key so a local run needs no setup. */
+    public JwtService(@Value("${jwt.secret:}") String secret,
+                      @Value("${jwt.expiration-ms:86400000}") long expirationMs) {
+        this.signingKey = new SecretKeySpec(
+                SecretKeys.resolve(secret, KEY_BYTES, "jwt.secret"), "HmacSHA256");
         this.expirationMs = expirationMs;
     }
 
