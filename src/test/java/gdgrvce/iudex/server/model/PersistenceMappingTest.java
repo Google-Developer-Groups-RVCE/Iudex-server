@@ -170,9 +170,11 @@ class PersistenceMappingTest {
 
         Problem second = newProblem(contest, 2, 1);
         second.setProblemUuid(first.getProblemUuid());
-        problemRepository.save(second);
 
-        assertThrows(DataIntegrityViolationException.class, () -> entityManager.flush());
+        // Flush through the repository: a bare EntityManager.flush() bypasses
+        // Spring's persistence exception translation.
+        assertThrows(DataIntegrityViolationException.class,
+                () -> problemRepository.saveAndFlush(second));
     }
 
     @Test

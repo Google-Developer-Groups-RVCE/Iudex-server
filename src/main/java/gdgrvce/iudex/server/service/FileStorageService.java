@@ -16,6 +16,7 @@ import java.util.UUID;
 import gdgrvce.iudex.server.model.Contest;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
+import gdgrvce.iudex.server.model.ProblemMetadata;
 import gdgrvce.iudex.server.model.TestCase;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class FileStorageService {
 
+    private static final String METADATA_FILE = "problem.json";
     private static final String STATEMENT_FILE = "statement.txt";
     private static final String TEMPLATE_FILE = "template.txt";
     private static final String SAMPLE_TEST_CASES_FILE = "sample_testcases.json";
@@ -83,7 +85,18 @@ public class FileStorageService {
      * removes the temporary directory and leaves no problem directory behind.
      */
     public void createProblemFiles(Contest contest, Problem problem, String statement) throws IOException {
+        createProblemFiles(contest, problem, statement,
+                new ProblemMetadata("Untitled", 1000, 256, 100));
+    }
+
+    /**
+     * Creates a problem directory and its initial files atomically, including
+     * the metadata the database does not hold.
+     */
+    public void createProblemFiles(Contest contest, Problem problem, String statement, ProblemMetadata metadata)
+            throws IOException {
         requireContestExists(contest);
+        Objects.requireNonNull(metadata, "metadata must not be null");
         Path problemDirectory = problemDirectory(contest, problem);
         if (Files.exists(problemDirectory)) {
             throw new IllegalStateException("problem already exists in file storage");
@@ -92,6 +105,7 @@ public class FileStorageService {
                 "temp_" + problem.getProblemUuid());
         Files.createDirectory(temporaryDirectory);
         try {
+            writeJson(temporaryDirectory.resolve(METADATA_FILE), metadata);
             Files.writeString(temporaryDirectory.resolve(STATEMENT_FILE), statement, StandardCharsets.UTF_8);
             Files.writeString(temporaryDirectory.resolve(TEMPLATE_FILE), "", StandardCharsets.UTF_8);
             writeTestCases(temporaryDirectory.resolve(SAMPLE_TEST_CASES_FILE), List.of());
@@ -105,6 +119,21 @@ public class FileStorageService {
             }
             throw exception;
         }
+    }
+
+    /** Replaces the problem metadata: title, limits, and score. */
+    public void saveProblemMetadata(Contest contest, Problem problem, ProblemMetadata metadata) throws IOException {
+        Objects.requireNonNull(metadata, "metadata must not be null");
+        requireProblemExists(contest, problem);
+        writeJson(problemDirectory(contest, problem).resolve(METADATA_FILE), metadata);
+    }
+
+    /** Reads the problem metadata. */
+    public ProblemMetadata readProblemMetadata(Contest contest, Problem problem) throws IOException {
+        requireProblemExists(contest, problem);
+        return objectMapper.readValue(
+                Files.readString(problemDirectory(contest, problem).resolve(METADATA_FILE), StandardCharsets.UTF_8),
+                ProblemMetadata.class);
     }
 
     /** Replaces the problem statement. */
@@ -184,6 +213,11 @@ public class FileStorageService {
                 Files.readString(problemDirectory(contest, problem).resolve(fileName), StandardCharsets.UTF_8),
                 new TypeReference<>() {
                 });
+    }
+
+    private void writeJson(Path file, Object value) throws IOException {
+        Files.writeString(file, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(value),
+                StandardCharsets.UTF_8);
     }
 
     private void writeTestCases(Path file, List<TestCase> testCases) throws IOException {
