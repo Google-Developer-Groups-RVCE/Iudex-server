@@ -31,16 +31,16 @@ class AuthControllerIntegrationTest {
     void registerReturnsCreatedWithToken() throws Exception {
         mockMvc.perform(post("/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new RegisterRequest("reg_user", "pw12345"))))
+                        .content(json(new RegisterRequest("reg_user", "pw123456"))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.username").value("reg_user"))
-                .andExpect(jsonPath("$.role").value("PARTICIPANT"));
+                .andExpect(jsonPath("$.role").value("CONTESTANT"));
     }
 
     @Test
     void duplicateRegistrationReturnsConflict() throws Exception {
-        RegisterRequest request = new RegisterRequest("dupe_user", "pw12345");
+        RegisterRequest request = new RegisterRequest("dupe_user", "pw123456");
         mockMvc.perform(post("/auth/register").contentType(MediaType.APPLICATION_JSON).content(json(request)))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/auth/register").contentType(MediaType.APPLICATION_JSON).content(json(request)))
@@ -49,17 +49,17 @@ class AuthControllerIntegrationTest {
 
     @Test
     void loginWithValidCredentialsReturnsToken() throws Exception {
-        register("login_user", "pw12345");
+        register("login_user", "pw123456");
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new LoginRequest("login_user", "pw12345"))))
+                        .content(json(new LoginRequest("login_user", "pw123456"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").isNotEmpty());
     }
 
     @Test
     void loginWithWrongPasswordReturnsUnauthorized() throws Exception {
-        register("wrongpw_user", "pw12345");
+        register("wrongpw_user", "pw123456");
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new LoginRequest("wrongpw_user", "nope"))))
@@ -74,11 +74,11 @@ class AuthControllerIntegrationTest {
 
     @Test
     void meWithValidTokenReturnsCurrentUser() throws Exception {
-        String token = register("me_user", "pw12345");
+        String token = register("me_user", "pw123456");
         mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("me_user"))
-                .andExpect(jsonPath("$.role").value("PARTICIPANT"));
+                .andExpect(jsonPath("$.role").value("CONTESTANT"));
     }
 
     private String register(String username, String password) throws Exception {

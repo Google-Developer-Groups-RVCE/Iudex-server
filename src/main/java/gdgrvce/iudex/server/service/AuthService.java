@@ -31,7 +31,7 @@ public class AuthService {
         this.jwtService = jwtService;
     }
 
-    /** Creates a participant account, hashes its password, and returns a token. */
+    /** Creates a contestant account, hashes its password, and returns a token. */
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.findByUsername(request.username()).isPresent()) {
             throw new UsernameAlreadyExistsException(request.username());
@@ -40,7 +40,7 @@ public class AuthService {
         User user = new User();
         user.setUsername(request.username());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setRole(Role.PARTICIPANT);
+        user.setRole(Role.CONTESTANT);
         User saved = userRepository.save(user);
 
         return new AuthResponse(jwtService.generateToken(saved), saved.getUsername(), saved.getRole());

@@ -2,7 +2,7 @@ package gdgrvce.iudex.server.model;
 
 import jakarta.persistence.*;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "registration")
@@ -11,13 +11,17 @@ public class Registration {
     public RegistrationId regId;
 
     @MapsId("userId")
-    @ManyToOne User user;
+    @ManyToOne
+    @JoinColumn(name = "user_id")
+    User user;
 
     @MapsId("contestId")
-    @ManyToOne Contest contest;
+    @ManyToOne
+    @JoinColumn(name = "contest_id")
+    Contest contest;
 
     @Column(nullable = false)
-    private LocalDateTime registrationTime;
+    private OffsetDateTime registrationTime;
 
     public Registration(){}
 
@@ -45,11 +49,11 @@ public class Registration {
         this.contest = contest;
     }
 
-    public LocalDateTime getRegistrationTime() {
+    public OffsetDateTime getRegistrationTime() {
         return registrationTime;
     }
 
-    public void setRegistrationTime(LocalDateTime registrationTime) {
+    public void setRegistrationTime(OffsetDateTime registrationTime) {
         this.registrationTime = registrationTime;
     }
 }

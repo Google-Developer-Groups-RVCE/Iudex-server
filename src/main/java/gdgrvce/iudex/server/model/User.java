@@ -20,7 +20,7 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Role role = Role.PARTICIPANT;
+    private Role role = Role.CONTESTANT;
 
     public User() {
     }
