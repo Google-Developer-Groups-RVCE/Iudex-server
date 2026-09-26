@@ -1,8 +1,11 @@
 package gdgrvce.iudex.server.controller;
 
 import gdgrvce.iudex.server.exception.InvalidSubmissionException;
+import gdgrvce.iudex.server.exception.ContestStateException;
+import gdgrvce.iudex.server.exception.ForbiddenOperationException;
 import gdgrvce.iudex.server.exception.ProblemNotFoundException;
 import gdgrvce.iudex.server.exception.RateLimitExceededException;
+import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.exception.UsernameAlreadyExistsException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -47,5 +50,21 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.getRetryAfterSeconds()))
                 .body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ResponseEntity<Map<String, String>> handleForbidden(ForbiddenOperationException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ContestStateException.class)
+    public ResponseEntity<Map<String, String>> handleContestState(ContestStateException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(StorageException.class)
+    public ResponseEntity<Map<String, String>> handleStorage(StorageException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Storage failure"));
     }
 }

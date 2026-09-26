@@ -4,21 +4,18 @@ import gdgrvce.iudex.server.dto.SubmitRequest;
 import gdgrvce.iudex.server.dto.SubmitResponse;
 import gdgrvce.iudex.server.exception.InvalidSubmissionException;
 import gdgrvce.iudex.server.exception.ProblemNotFoundException;
+import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.Submission;
 import gdgrvce.iudex.server.model.SubmissionId;
 import gdgrvce.iudex.server.model.TestCase;
-import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.ProblemRepository;
 import gdgrvce.iudex.server.repository.SubmissionRepository;
-import gdgrvce.iudex.server.repository.UserRepository;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,36 +23,35 @@ import java.util.UUID;
 @Service
 public class SubmissionService {
 
-    private final UserRepository userRepository;
     private final ProblemRepository problemRepository;
     private final SubmissionRepository submissionRepository;
     private final FileStorageService fileStorageService;
     private final SubmissionRateLimiter rateLimiter;
+    private final ContestAccessService access;
 
     public SubmissionService(
-            UserRepository userRepository,
             ProblemRepository problemRepository,
             SubmissionRepository submissionRepository,
             FileStorageService fileStorageService,
-            SubmissionRateLimiter rateLimiter) {
-        this.userRepository = userRepository;
+            SubmissionRateLimiter rateLimiter,
+            ContestAccessService access) {
         this.problemRepository = problemRepository;
         this.submissionRepository = submissionRepository;
         this.fileStorageService = fileStorageService;
         this.rateLimiter = rateLimiter;
+        this.access = access;
     }
 
     @Transactional
     public SubmitResponse judge(String username, UUID contestId, int problemNum, SubmitRequest request) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("Unknown user: " + username));
-
-        rateLimiter.check(user.getUserId());
+        var user = access.currentUser(username);
 
         ProblemId problemId = problemId(contestId, problemNum);
         Problem problem = problemRepository.findById(problemId)
                 .orElseThrow(() -> new ProblemNotFoundException(
                         "Problem " + problemNum + " not found for contest " + contestId));
+        access.requireSubmissionAllowed(problem.getContest(), user);
+        rateLimiter.check(user.getUserId());
 
         List<TestCase> hiddenTestCases = readHiddenTestCases(problem);
 
@@ -84,9 +80,11 @@ public class SubmissionService {
         return passed;
     }
 
-    private int persist(User user, Problem problem, int passed) {
-        int submissionNum = (int) submissionRepository
-                .countBySubmissionIdUserIdAndSubmissionIdProblemId(user.getUserId(), problem.getProblemId()) + 1;
+    private int persist(gdgrvce.iudex.server.model.User user, Problem problem, int passed) {
+        int submissionNum = submissionRepository.findHighestSubmissionNum(
+                problem.getProblemId().getContestId(),
+                problem.getProblemId().getProblemNum(),
+                user.getUserId()) + 1;
 
         SubmissionId submissionId = new SubmissionId();
         submissionId.setUserId(user.getUserId());
@@ -107,7 +105,7 @@ public class SubmissionService {
         try {
             return fileStorageService.readHiddenTestCases(problem.getContest(), problem);
         } catch (IOException exception) {
-            throw new UncheckedIOException("Unable to read hidden testcases", exception);
+            throw new StorageException("Unable to read hidden testcases", exception);
         }
     }
 
