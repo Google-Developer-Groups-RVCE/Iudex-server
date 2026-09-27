@@ -22,7 +22,7 @@ class JwtServiceTest {
         user.setUserId(UUID.randomUUID());
         user.setUsername(username);
         user.setPasswordHash("hash");
-        user.setRole(Role.PARTICIPANT);
+        user.setRole(Role.CONTESTANT);
         return user;
     }
 

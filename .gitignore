@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Iudex runtime artifacts ###
+.DS_Store
+*.mv.db
+*.trace.db
+/data/
+/storage/

@@ -2,8 +2,7 @@ package gdgrvce.iudex.server.model;
 
 import jakarta.persistence.*;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
@@ -16,34 +15,17 @@ public class Contest {
     @Column(nullable = false)
     private String contestName;
 
+    // TIMESTAMP WITH TIME ZONE: the server clock is authoritative for the window.
     @Column(nullable = false)
-    private LocalDateTime startTime;
+    private OffsetDateTime startTime;
 
     @Column(nullable = false)
-    private LocalDateTime endTime;
+    private OffsetDateTime endTime;
 
     @Column(nullable = false)
     private UUID hostId;
 
-    // dont store this in DB
-    @Transient
-    private ContestStatus status;
-
     public Contest(){}
-
-    // calculate contest status dynamically
-    public ContestStatus getStatus() {
-        LocalDateTime now = LocalDateTime.now();
-        if (now.isBefore(startTime)) {
-            return ContestStatus.UPCOMING;
-        } else if(now.isAfter(endTime.plusHours(24))) {
-            return ContestStatus.ARCHIVED;
-        } else if (now.isAfter(endTime)) {
-            return ContestStatus.FINISHED;
-        } else {
-            return ContestStatus.ONGOING;
-        }
-    }
 
     public UUID getContestId() {
         return contestId;
@@ -61,19 +43,19 @@ public class Contest {
         this.contestName = contestName;
     }
 
-    public LocalDateTime getStartTime() {
+    public OffsetDateTime getStartTime() {
         return startTime;
     }
 
-    public void setStartTime(LocalDateTime startTime) {
+    public void setStartTime(OffsetDateTime startTime) {
         this.startTime = startTime;
     }
 
-    public LocalDateTime getEndTime() {
+    public OffsetDateTime getEndTime() {
         return endTime;
     }
 
-    public void setEndTime(LocalDateTime endTime) {
+    public void setEndTime(OffsetDateTime endTime) {
         this.endTime = endTime;
     }
 

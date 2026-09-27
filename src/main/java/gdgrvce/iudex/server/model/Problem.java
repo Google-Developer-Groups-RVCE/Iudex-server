@@ -9,7 +9,9 @@ public class Problem {
     public ProblemId problemId;
 
     @MapsId("contestId")
-    @ManyToOne Contest contest;
+    @ManyToOne
+    @JoinColumn(name = "contest_id")
+    Contest contest;
 
     @Column(nullable = false)
     int testCaseCount;
@@ -38,4 +40,3 @@ public class Problem {
         this.testCaseCount = testCaseCount;
     }
 }
-
