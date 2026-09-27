@@ -2,12 +2,14 @@ package gdgrvce.iudex.server.controller;
 
 import gdgrvce.iudex.server.exception.ContestStateException;
 import gdgrvce.iudex.server.exception.ForbiddenOperationException;
+import gdgrvce.iudex.server.exception.RateLimitExceededException;
 import gdgrvce.iudex.server.exception.ResourceNotFoundException;
 import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.exception.UsernameAlreadyExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -51,6 +53,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ContestStateException.class)
     public ResponseEntity<Map<String, String>> handleContestState(ContestStateException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    }
+
+    /** Rejects submissions that arrive before the minimum interval has elapsed. */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<Map<String, String>> handleRateLimit(RateLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.getRetryAfterSeconds()))
+                .body(Map.of("error", ex.getMessage()));
     }
 
     /** A request body broke its constraints: say which fields, and why. */

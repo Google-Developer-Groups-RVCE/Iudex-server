@@ -49,15 +49,18 @@ public class SubmissionService {
     private final FileStorageService fileStorageService;
     private final TestCaseCipher cipher;
     private final ContestAccessService access;
+    private final SubmissionRateLimiter rateLimiter;
 
     public SubmissionService(SubmissionRepository submissionRepository,
                              FileStorageService fileStorageService,
                              TestCaseCipher cipher,
-                             ContestAccessService access) {
+                             ContestAccessService access,
+                             SubmissionRateLimiter rateLimiter) {
         this.submissionRepository = submissionRepository;
         this.fileStorageService = fileStorageService;
         this.cipher = cipher;
         this.access = access;
+        this.rateLimiter = rateLimiter;
     }
 
     /** Grades one attempt and records it against the server clock. */
@@ -74,6 +77,9 @@ public class SubmissionService {
         Problem problem = access.requireProblem(request.problemId());
         Contest contest = problem.getContest();
         access.requireSubmissionAllowed(contest, user);
+        // Only a request the contest would accept spends the caller's slot, so an
+        // early or unregistered attempt cannot lock a contestant out once it opens.
+        rateLimiter.check(user.getUserId());
 
         Map<UUID, String> expected = expectedOutputs(contest, problem);
         if (expected.isEmpty()) {
@@ -165,37 +171,11 @@ public class SubmissionService {
             if (want == null || !seen.add(result.testCaseId())) {
                 continue;
             }
-            if (matches(cipher.decrypt(result.encryptedOutput()), want)) {
+            if (OutputComparator.matches(cipher.decrypt(result.encryptedOutput()), want)) {
                 passed++;
             }
         }
         return passed;
-    }
-
-    /**
-     * Compares program output with the expected answer the way a judge does:
-     * trailing whitespace on a line, the line ending style, and trailing blank
-     * lines are all treated as insignificant.
-     */
-    private boolean matches(String actual, String expected) {
-        return normalize(actual).equals(normalize(expected));
-    }
-
-    private String normalize(String text) {
-        String[] lines = text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
-        int last = lines.length - 1;
-        while (last >= 0 && lines[last].isBlank()) {
-            last--;
-        }
-
-        StringBuilder normalized = new StringBuilder();
-        for (int index = 0; index <= last; index++) {
-            if (index > 0) {
-                normalized.append('\n');
-            }
-            normalized.append(lines[index].stripTrailing());
-        }
-        return normalized.toString();
     }
 
     /** Both collections count towards the score; only the client can tell them apart. */
