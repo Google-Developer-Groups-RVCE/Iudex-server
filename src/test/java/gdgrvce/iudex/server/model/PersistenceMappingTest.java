@@ -119,6 +119,7 @@ class PersistenceMappingTest {
         User contestant = saveUser("contestant_telemetry", Role.CONTESTANT);
         Contest contest = saveContest(saveUser("cm_telemetry", Role.CONTESTMASTER), "Telemetry Cup");
         Problem problem = saveProblem(contest, 1, 3);
+        saveRegistration(contest, contestant);
 
         OffsetDateTime receivedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         Submission submission = newSubmission(contestant, problem, 1, 2);
@@ -138,6 +139,7 @@ class PersistenceMappingTest {
         User contestant = saveUser("contestant_optional", Role.CONTESTANT);
         Contest contest = saveContest(saveUser("cm_optional", Role.CONTESTMASTER), "Optional Cup");
         Problem problem = saveProblem(contest, 1, 3);
+        saveRegistration(contest, contestant);
 
         Submission submission = newSubmission(contestant, problem, 1, 0);
         submission.setClientDurationMs(null);
@@ -150,31 +152,42 @@ class PersistenceMappingTest {
     }
 
     @Test
-    void flatProblemAndSubmissionIdentifiersArePresent() {
+    void submissionIsFoundByItsIdAlone() {
         User contestant = saveUser("contestant_flat", Role.CONTESTANT);
         Contest contest = saveContest(saveUser("cm_flat", Role.CONTESTMASTER), "Flat Cup");
         Problem problem = saveProblem(contest, 1, 1);
+        saveRegistration(contest, contestant);
         Submission submission = saveSubmission(contestant, problem, 1, 1);
 
         reload();
 
-        assertNotNull(problemRepository.findById(problem.getProblemId()).orElseThrow().getProblemUuid());
-        assertNotNull(submissionRepository.findById(submission.getSubmissionId()).orElseThrow()
-                .getSubmissionUuid());
+        Submission loaded = submissionRepository.findById(submission.getSubmissionId()).orElseThrow();
+        assertNotNull(loaded.getSubmissionId());
+        assertEquals(1, loaded.getSubmissionNum());
     }
 
     @Test
-    void rejectsTwoProblemsSharingAFlatIdentifier() {
+    void rejectsTwoSubmissionsSharingAnAttemptNumber() {
+        User contestant = saveUser("contestant_dupe", Role.CONTESTANT);
         Contest contest = saveContest(saveUser("cm_dupe", Role.CONTESTMASTER), "Duplicate Cup");
-        Problem first = saveProblem(contest, 1, 1);
-
-        Problem second = newProblem(contest, 2, 1);
-        second.setProblemUuid(first.getProblemUuid());
+        Problem problem = saveProblem(contest, 1, 1);
+        saveRegistration(contest, contestant);
+        saveSubmission(contestant, problem, 1, 1);
 
         // Flush through the repository: a bare EntityManager.flush() bypasses
         // Spring's persistence exception translation.
         assertThrows(DataIntegrityViolationException.class,
-                () -> problemRepository.saveAndFlush(second));
+                () -> submissionRepository.saveAndFlush(newSubmission(contestant, problem, 1, 0)));
+    }
+
+    @Test
+    void rejectsASubmissionWithoutARegistration() {
+        User contestant = saveUser("contestant_unregistered", Role.CONTESTANT);
+        Contest contest = saveContest(saveUser("cm_unregistered", Role.CONTESTMASTER), "Closed Cup");
+        Problem problem = saveProblem(contest, 1, 1);
+
+        assertThrows(DataIntegrityViolationException.class,
+                () -> submissionRepository.saveAndFlush(newSubmission(contestant, problem, 1, 1)));
     }
 
     @Test
@@ -182,6 +195,7 @@ class PersistenceMappingTest {
         User contestant = saveUser("contestant_history", Role.CONTESTANT);
         Contest contest = saveContest(saveUser("cm_history", Role.CONTESTMASTER), "History Cup");
         Problem problem = saveProblem(contest, 1, 4);
+        saveRegistration(contest, contestant);
 
         saveSubmission(contestant, problem, 1, 1);
         saveSubmission(contestant, problem, 2, 3);
@@ -222,7 +236,6 @@ class PersistenceMappingTest {
         problemId.setContestId(contest.getContestId());
         problemId.setProblemNum(problemNumber);
         problem.setProblemId(problemId);
-        problem.setProblemUuid(UUID.randomUUID());
         problem.setContest(contest);
         problem.setTestCaseCount(testCaseCount);
         return problem;
@@ -246,12 +259,8 @@ class PersistenceMappingTest {
 
     private Submission newSubmission(User user, Problem problem, int submissionNumber, int passed) {
         Submission submission = new Submission();
-        SubmissionId submissionId = new SubmissionId();
-        submissionId.setUserId(user.getUserId());
-        submissionId.setProblemId(problem.getProblemId());
-        submissionId.setSubmissionNum(submissionNumber);
-        submission.setSubmissionId(submissionId);
-        submission.setSubmissionUuid(UUID.randomUUID());
+        submission.setSubmissionId(UUID.randomUUID());
+        submission.setSubmissionNum(submissionNumber);
         submission.setUser(user);
         submission.setProblem(problem);
         submission.setPassedTestCaseCount(passed);

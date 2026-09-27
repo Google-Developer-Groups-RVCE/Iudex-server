@@ -10,7 +10,6 @@ import java.util.UUID;
  * would tell a contestant the shape of the hidden data.</p>
  */
 public record SubmissionResponse(UUID submissionId,
-                                 UUID problemId,
                                  UUID contestId,
                                  int problemNum,
                                  int submissionNum,

@@ -11,7 +11,6 @@ import gdgrvce.iudex.server.model.Contest;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.Submission;
-import gdgrvce.iudex.server.model.SubmissionId;
 import gdgrvce.iudex.server.model.TestCase;
 import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.SubmissionRepository;
@@ -67,14 +66,14 @@ public class SubmissionService {
     @Transactional
     public SubmissionResponse submit(UserDetails principal, SubmissionRequest request) {
         User user = access.currentUser(principal);
-        if (request.problemId() == null) {
-            throw new IllegalArgumentException("problemId is required");
+        if (request.contestId() == null || request.problemNum() == null) {
+            throw new IllegalArgumentException("contestId and problemNum are required");
         }
         if (request.clientDurationMs() != null && request.clientDurationMs() < 0) {
             throw new IllegalArgumentException("clientDurationMs must not be negative");
         }
 
-        Problem problem = access.requireProblem(request.problemId());
+        Problem problem = access.requireProblem(request.contestId(), request.problemNum());
         Contest contest = problem.getContest();
         access.requireSubmissionAllowed(contest, user);
         // Only a request the contest would accept spends the caller's slot, so an
@@ -87,8 +86,8 @@ public class SubmissionService {
         }
 
         Submission submission = new Submission();
-        submission.setSubmissionId(nextId(user, problem));
-        submission.setSubmissionUuid(UUID.randomUUID());
+        submission.setSubmissionId(UUID.randomUUID());
+        submission.setSubmissionNum(nextSubmissionNum(user, problem));
         submission.setUser(user);
         submission.setProblem(problem);
         submission.setPassedTestCaseCount(grade(expected, request.results()));
@@ -101,13 +100,13 @@ public class SubmissionService {
 
     /** Returns one submission to the contestant who made it, or to the contestmaster. */
     @Transactional(readOnly = true)
-    public SubmissionResponse get(UUID submissionUuid, UserDetails principal) {
+    public SubmissionResponse get(UUID submissionId, UserDetails principal) {
         User user = access.currentUser(principal);
-        Submission submission = submissionRepository.findBySubmissionUuid(submissionUuid)
-                .orElseThrow(() -> new ResourceNotFoundException("No such submission: " + submissionUuid));
+        Submission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("No such submission: " + submissionId));
 
         Contest contest = submission.getProblem().getContest();
-        if (!submission.getSubmissionId().getUserId().equals(user.getUserId())
+        if (!submission.getUser().getUserId().equals(user.getUserId())
                 && !access.owns(contest, user) && !access.isAdmin(user)) {
             throw new ForbiddenOperationException("Only the contestant or the contestmaster may read that");
         }
@@ -121,9 +120,9 @@ public class SubmissionService {
      * point this at somebody else's attempts.</p>
      */
     @Transactional(readOnly = true)
-    public List<SubmissionResponse> listMine(UUID problemUuid, UserDetails principal) {
+    public List<SubmissionResponse> listMine(UUID contestId, int problemNum, UserDetails principal) {
         User user = access.currentUser(principal);
-        Problem problem = access.requireProblem(problemUuid);
+        Problem problem = access.requireProblem(contestId, problemNum);
         ProblemId problemId = problem.getProblemId();
 
         return submissionRepository.findByProblemAndUser(
@@ -194,31 +193,20 @@ public class SubmissionService {
         return expected;
     }
 
-    private SubmissionId nextId(User user, Problem problem) {
-        ProblemId source = problem.getProblemId();
-
-        // A fresh copy: the submission's key must not alias the problem's own.
-        ProblemId problemId = new ProblemId();
-        problemId.setContestId(source.getContestId());
-        problemId.setProblemNum(source.getProblemNum());
-
-        SubmissionId submissionId = new SubmissionId();
-        submissionId.setUserId(user.getUserId());
-        submissionId.setProblemId(problemId);
-        submissionId.setSubmissionNum(submissionRepository.findHighestSubmissionNum(
-                source.getContestId(), source.getProblemNum(), user.getUserId()) + 1);
-        return submissionId;
+    private int nextSubmissionNum(User user, Problem problem) {
+        ProblemId problemId = problem.getProblemId();
+        return submissionRepository.findHighestSubmissionNum(
+                problemId.getContestId(), problemId.getProblemNum(), user.getUserId()) + 1;
     }
 
     private SubmissionResponse toResponse(Submission submission) {
         Problem problem = submission.getProblem();
         return new SubmissionResponse(
-                submission.getSubmissionUuid(),
-                problem.getProblemUuid(),
+                submission.getSubmissionId(),
                 problem.getProblemId().getContestId(),
                 problem.getProblemId().getProblemNum(),
-                submission.getSubmissionId().getSubmissionNum(),
-                submission.getSubmissionId().getUserId(),
+                submission.getSubmissionNum(),
+                submission.getUser().getUserId(),
                 submission.getUser().getUsername(),
                 submission.getPassedTestCaseCount(),
                 problem.getTestCaseCount(),

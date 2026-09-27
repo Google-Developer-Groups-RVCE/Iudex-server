@@ -8,13 +8,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 public interface ProblemRepository extends JpaRepository<Problem, ProblemId> {
-
-    /** Resolves the flat identifier used by {@code GET /api/problems/{id}}. */
-    Optional<Problem> findByProblemUuid(UUID problemUuid);
 
     @Query("select p from Problem p where p.problemId.contestId = :contestId order by p.problemId.problemNum")
     List<Problem> findByContestId(@Param("contestId") UUID contestId);

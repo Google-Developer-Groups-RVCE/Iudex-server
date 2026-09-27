@@ -47,10 +47,11 @@ public class SubmissionController {
     }
 
     /** The caller's own attempts at a problem, oldest first. */
-    @GetMapping("/problems/{problemId}/submissions")
-    public List<SubmissionResponse> listMine(@PathVariable UUID problemId,
+    @GetMapping("/contests/{contestId}/problems/{problemNum}/submissions")
+    public List<SubmissionResponse> listMine(@PathVariable UUID contestId,
+                                             @PathVariable int problemNum,
                                              @AuthenticationPrincipal UserDetails principal) {
-        return submissionService.listMine(problemId, principal);
+        return submissionService.listMine(contestId, problemNum, principal);
     }
 
     /** Every attempt in a contest. Contestmaster and administrators only. */

@@ -21,11 +21,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Problem reads and edits, addressed by the flat problem identifier the client
- * contract uses.
+ * Problem reads and edits, addressed by contest and problem number.
  */
 @RestController
-@RequestMapping("/api/problems")
+@RequestMapping("/api/contests/{contestId}/problems/{problemNum}")
 public class ProblemController {
 
     private final ProblemService problemService;
@@ -34,37 +33,42 @@ public class ProblemController {
         this.problemService = problemService;
     }
 
-    @GetMapping("/{problemId}")
-    public ProblemResponse get(@PathVariable UUID problemId,
+    @GetMapping
+    public ProblemResponse get(@PathVariable UUID contestId,
+                               @PathVariable int problemNum,
                                @AuthenticationPrincipal UserDetails principal) {
-        return problemService.get(problemId, principal);
+        return problemService.get(contestId, problemNum, principal);
     }
 
-    @PatchMapping("/{problemId}")
-    public ProblemResponse update(@PathVariable UUID problemId,
+    @PatchMapping
+    public ProblemResponse update(@PathVariable UUID contestId,
+                                  @PathVariable int problemNum,
                                   @AuthenticationPrincipal UserDetails principal,
                                   @RequestBody ProblemRequest request) {
-        return problemService.update(problemId, principal, request);
+        return problemService.update(contestId, problemNum, principal, request);
     }
 
-    @DeleteMapping("/{problemId}")
-    public ResponseEntity<Void> delete(@PathVariable UUID problemId,
+    @DeleteMapping
+    public ResponseEntity<Void> delete(@PathVariable UUID contestId,
+                                       @PathVariable int problemNum,
                                        @AuthenticationPrincipal UserDetails principal) {
-        problemService.delete(problemId, principal);
+        problemService.delete(contestId, problemNum, principal);
         return ResponseEntity.noContent().build();
     }
 
     /** Encrypted test inputs only. Expected output is not part of the response type. */
-    @GetMapping("/{problemId}/tests")
-    public List<EncryptedTestCase> tests(@PathVariable UUID problemId,
+    @GetMapping("/tests")
+    public List<EncryptedTestCase> tests(@PathVariable UUID contestId,
+                                         @PathVariable int problemNum,
                                      @AuthenticationPrincipal UserDetails principal) {
-        return problemService.testInputs(problemId, principal);
+        return problemService.testInputs(contestId, problemNum, principal);
     }
 
-    @PutMapping("/{problemId}/testcases")
-    public ProblemResponse replaceTestCases(@PathVariable UUID problemId,
+    @PutMapping("/testcases")
+    public ProblemResponse replaceTestCases(@PathVariable UUID contestId,
+                                            @PathVariable int problemNum,
                                             @AuthenticationPrincipal UserDetails principal,
                                             @RequestBody TestCaseUploadRequest request) {
-        return problemService.replaceTestCases(problemId, principal, request);
+        return problemService.replaceTestCases(contestId, problemNum, principal, request);
     }
 }

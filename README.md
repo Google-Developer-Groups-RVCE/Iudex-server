@@ -57,7 +57,7 @@ too-short value fails at startup rather than at the first request.
 
 The server never runs contestant code, and never takes a score from the client.
 
-1. `GET /api/problems/{id}/tests` returns every test case input, sample and
+1. `GET /api/contests/{contestId}/problems/{problemNum}/tests` returns every test case input, sample and
    hidden alike, encrypted with AES-256-GCM under `IUDEX_TESTCASE_SECRET`.
    Expected outputs are not in the response type at all.
 2. The client decrypts the inputs, runs the contestant's program, and encrypts
@@ -88,7 +88,7 @@ the server clock.
 The database holds identity and ordering only. Problem content lives on disk:
 
 ```
-{IUDEX_STORAGE_ROOT}/{contestId}/{problemId}/
+{IUDEX_STORAGE_ROOT}/{contestId}/{problemNum}/
     problem.json           title, time and memory limits, score
     statement.txt
     template.txt

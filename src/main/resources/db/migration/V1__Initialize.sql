@@ -29,10 +29,9 @@ create table contest (
 -- PROBLEM
 -- ============================================
 -- Identity anchor only. Title, limits, score, statement, solution template
--- and all test cases live in file storage under the problem_id directory.
+-- and all test cases live in file storage under {contest_id}/{problem_num}.
 
 create table problem (
-    problem_id      uuid    not null unique,
     problem_num     integer not null,
     contest_id      uuid    not null,
     test_case_count integer not null,
@@ -58,9 +57,12 @@ create table registration (
 -- received_at is the authoritative submission time: no client-supplied value
 -- is ever used for it. client_duration_ms is client-reported telemetry and
 -- must never influence a verdict or a ranking.
+--
+-- submission_num counts one contestant's attempts at one problem, so it is
+-- unique only within that scope.
 
 create table submission (
-    submission_id          uuid    not null unique,
+    submission_id          uuid    not null,
     submission_num         integer not null,
     problem_num            integer not null,
     contest_id             uuid    not null,
@@ -68,7 +70,8 @@ create table submission (
     passed_test_case_count integer not null,
     received_at            timestamp(6) with time zone not null,
     client_duration_ms     integer,
-    primary key (submission_num, problem_num, contest_id, user_id)
+    primary key (submission_id),
+    constraint uk_submission_attempt unique (contest_id, problem_num, user_id, submission_num)
 );
 
 
@@ -105,4 +108,11 @@ alter table if exists submission
    add constraint fk_submission_user
    foreign key (user_id)
    references users
+;
+-- Only a registered contestant may submit, so a submission cannot outlive the
+-- registration it was made under.
+alter table if exists submission
+   add constraint fk_submission_registration
+   foreign key (contest_id, user_id)
+   references registration
 ;

@@ -32,7 +32,7 @@ class FileStorageServiceTests {
         service.createContest(contest);
         service.createProblemFiles(contest, problem, "Add two numbers");
 
-        Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString()).resolve(problem.getProblemUuid().toString());
+        Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString()).resolve(Integer.toString(problem.getProblemId().getProblemNum()));
         assertTrue(service.contestExists(contest));
         assertTrue(service.problemExists(contest, problem));
         assertEquals("Add two numbers", Files.readString(problemDirectory.resolve("statement.txt")));
@@ -67,8 +67,8 @@ class FileStorageServiceTests {
                 () -> service.createProblemFiles(contest, problem, null));
 
         Path contestDirectory = temporaryDirectory.resolve(contest.getContestId().toString());
-        assertFalse(Files.exists(contestDirectory.resolve(problem.getProblemUuid().toString())));
-        assertFalse(Files.exists(contestDirectory.resolve("temp_" + problem.getProblemUuid())));
+        assertFalse(Files.exists(contestDirectory.resolve(Integer.toString(problem.getProblemId().getProblemNum()))));
+        assertFalse(Files.exists(contestDirectory.resolve("temp_" + problem.getProblemId().getProblemNum())));
     }
 
     @Test
@@ -170,7 +170,7 @@ class FileStorageServiceTests {
         service.saveHiddenTestCases(contest, problem, List.of(new TestCase("secret in", "secret out")));
 
         Path problemDirectory = temporaryDirectory.resolve(contest.getContestId().toString())
-                .resolve(problem.getProblemUuid().toString());
+                .resolve(Integer.toString(problem.getProblemId().getProblemNum()));
         assertFalse(Files.readString(problemDirectory.resolve("sample_testcases.json")).contains("secret out"));
         assertTrue(Files.readString(problemDirectory.resolve("hidden_testcases.json")).contains("secret out"));
     }
@@ -191,7 +191,6 @@ class FileStorageServiceTests {
         problemId.setContestId(contest.getContestId());
         problemId.setProblemNum(problemNumber);
         problem.setProblemId(problemId);
-        problem.setProblemUuid(UUID.randomUUID());
         problem.setContest(contest);
         return problem;
     }

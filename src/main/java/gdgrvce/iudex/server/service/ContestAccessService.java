@@ -5,6 +5,7 @@ import gdgrvce.iudex.server.exception.ForbiddenOperationException;
 import gdgrvce.iudex.server.exception.ResourceNotFoundException;
 import gdgrvce.iudex.server.model.Contest;
 import gdgrvce.iudex.server.model.Problem;
+import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.Registration;
 import gdgrvce.iudex.server.model.RegistrationId;
 import gdgrvce.iudex.server.model.Role;
@@ -68,9 +69,13 @@ public class ContestAccessService {
                 .orElseThrow(() -> new ResourceNotFoundException("No such contest: " + contestId));
     }
 
-    public Problem requireProblem(UUID problemUuid) {
-        return problemRepository.findByProblemUuid(problemUuid)
-                .orElseThrow(() -> new ResourceNotFoundException("No such problem: " + problemUuid));
+    public Problem requireProblem(UUID contestId, int problemNum) {
+        ProblemId problemId = new ProblemId();
+        problemId.setContestId(contestId);
+        problemId.setProblemNum(problemNum);
+        return problemRepository.findById(problemId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No such problem: " + contestId + "/" + problemNum));
     }
 
     public boolean isAdmin(User user) {

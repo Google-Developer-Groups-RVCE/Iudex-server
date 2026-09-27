@@ -11,35 +11,33 @@ import java.util.UUID;
  *
  * <p>Submissions are append-only: nothing ever edits one, so {@link #isNew()}
  * is unconditionally true. Without that, Spring Data would see the assigned
- * composite key, treat the entity as detached, and save it with {@code merge},
- * which turns a duplicate attempt number into a silent overwrite of an earlier
- * submission. Forcing {@code persist} makes the collision fail on the primary
- * key instead, where the caller can see it.</p>
+ * id, treat the entity as detached, and save it with {@code merge}, costing a
+ * select before every insert. Forcing {@code persist} also means a duplicate
+ * attempt number fails on {@code uk_submission_attempt} rather than anything
+ * being quietly merged.</p>
  */
 @Entity
 @Table(name = "submission")
-public class Submission implements Persistable<SubmissionId> {
-    @EmbeddedId
-    public SubmissionId submissionId;
+public class Submission implements Persistable<UUID> {
+    @Id
+    @Column(name = "submission_id", nullable = false, updatable = false)
+    private UUID submissionId;
 
-    // Flat identifier returned by POST /api/submissions. Unique, but not the
-    // primary key.
-    @Column(name = "submission_id", nullable = false, unique = true, updatable = false)
-    private UUID submissionUuid;
+    // The contestant's attempt number at this problem, starting from 1.
+    @Column(nullable = false, updatable = false)
+    private int submissionNum;
 
-    @MapsId("userId")
-    @ManyToOne
-    @JoinColumn(name = "user_id")
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "user_id", nullable = false, updatable = false)
     User user;
 
     // Column order matches ProblemId's field order: contestId, then problemNum.
     // referencedColumnName is deliberately omitted -- Problem's own id is itself
     // derived via @MapsId, so those columns are not resolvable at this point.
-    @MapsId("problemId")
-    @ManyToOne
+    @ManyToOne(optional = false)
     @JoinColumns({
-            @JoinColumn(name = "contest_id"),
-            @JoinColumn(name = "problem_num")
+            @JoinColumn(name = "contest_id", nullable = false, updatable = false),
+            @JoinColumn(name = "problem_num", nullable = false, updatable = false)
     })
     Problem problem;
 
@@ -58,7 +56,7 @@ public class Submission implements Persistable<SubmissionId> {
 
     @Override
     @Transient
-    public SubmissionId getId() {
+    public UUID getId() {
         return submissionId;
     }
 
@@ -69,20 +67,20 @@ public class Submission implements Persistable<SubmissionId> {
         return true;
     }
 
-    public SubmissionId getSubmissionId() {
+    public UUID getSubmissionId() {
         return submissionId;
     }
 
-    public void setSubmissionId(SubmissionId submissionId) {
+    public void setSubmissionId(UUID submissionId) {
         this.submissionId = submissionId;
     }
 
-    public UUID getSubmissionUuid() {
-        return submissionUuid;
+    public int getSubmissionNum() {
+        return submissionNum;
     }
 
-    public void setSubmissionUuid(UUID submissionUuid) {
-        this.submissionUuid = submissionUuid;
+    public void setSubmissionNum(int submissionNum) {
+        this.submissionNum = submissionNum;
     }
 
     public User getUser() {

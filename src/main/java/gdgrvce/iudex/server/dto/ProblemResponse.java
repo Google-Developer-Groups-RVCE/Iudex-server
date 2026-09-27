@@ -9,8 +9,7 @@ import java.util.UUID;
  * <p>Sample test cases carry their expected output because samples are public.
  * Hidden cases never appear here at all.</p>
  */
-public record ProblemResponse(UUID problemId,
-                              UUID contestId,
+public record ProblemResponse(UUID contestId,
                               int problemNum,
                               String title,
                               String statement,

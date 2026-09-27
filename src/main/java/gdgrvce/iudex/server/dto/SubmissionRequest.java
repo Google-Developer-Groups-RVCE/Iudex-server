@@ -13,7 +13,8 @@ import java.util.UUID;
  * <p>{@code clientDurationMs} is optional telemetry. It is stored for display
  * and never influences a verdict or a ranking.</p>
  */
-public record SubmissionRequest(UUID problemId,
+public record SubmissionRequest(UUID contestId,
+                                Integer problemNum,
                                 List<SubmissionResult> results,
                                 Integer clientDurationMs) {
 }

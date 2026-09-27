@@ -102,7 +102,7 @@ public class FileStorageService {
             throw new IllegalStateException("problem already exists in file storage");
         }
         Path temporaryDirectory = problemDirectory.resolveSibling(
-                "temp_" + problem.getProblemUuid());
+                "temp_" + problem.getProblemId().getProblemNum());
         Files.createDirectory(temporaryDirectory);
         try {
             writeJson(temporaryDirectory.resolve(METADATA_FILE), metadata);
@@ -247,10 +247,9 @@ public class FileStorageService {
         if (!contestId.equals(problemId.getContestId())) {
             throw new IllegalArgumentException("problem does not belong to the supplied contest");
         }
-        UUID problemUuid = Objects.requireNonNull(problem.getProblemUuid(), "problem UUID must not be null");
 
         return contestDirectory(contestId)
-                .resolve(problemUuid.toString())
+                .resolve(Integer.toString(problemId.getProblemNum()))
                 .normalize();
     }
 

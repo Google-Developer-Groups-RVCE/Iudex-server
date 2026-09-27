@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
@@ -28,10 +29,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -73,7 +81,7 @@ class SubmissionApiIntegrationTest {
     @Autowired
     private JwtService jwtService;
 
-    @Autowired
+    @MockitoSpyBean
     private TestCaseCipher cipher;
 
     // ---------- grading ----------
@@ -212,13 +220,13 @@ class SubmissionApiIntegrationTest {
     }
 
     @Test
-    void rejectsASubmissionWithNoProblemId() throws Exception {
+    void rejectsASubmissionWithNoProblemNum() throws Exception {
         Fixture fixture = runningContest();
 
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(null, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), null, List.of(), null))))
                 .andExpect(status().isBadRequest());
     }
 
@@ -290,7 +298,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + outsider)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(fixture.problemId, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
                 .andExpect(status().isForbidden());
     }
 
@@ -301,7 +309,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.owner)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(fixture.problemId, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
                 .andExpect(status().isForbidden());
     }
 
@@ -311,7 +319,7 @@ class SubmissionApiIntegrationTest {
 
         mockMvc.perform(post("/api/submissions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(fixture.problemId, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -322,7 +330,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.randomUUID(), List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum + 1, List.of(), null))))
                 .andExpect(status().isNotFound());
     }
 
@@ -331,14 +339,14 @@ class SubmissionApiIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Empty Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "No Data");
+        int problemNum = addProblem(owner, contestId, "No Data");
         register(contestant, contestId);
         startContestNow(owner, contestId);
 
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(problemId), List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, List.of(), null))))
                 .andExpect(status().isConflict());
     }
 
@@ -368,7 +376,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + second)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(fixture.problemId, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
                 .andExpect(jsonPath("$.submissionNum").value(1));
     }
 
@@ -378,12 +386,55 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(submit(fixture, List.of(), null)).andExpect(status().isCreated());
         mockMvc.perform(submit(fixture, correctAnswers(fixture), null)).andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/problems/" + fixture.problemId + "/submissions")
+        mockMvc.perform(get(problemPath(fixture.contestId, fixture.problemNum) + "/submissions")
                         .header("Authorization", "Bearer " + fixture.contestant))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].passedTestCaseCount").value(0))
                 .andExpect(jsonPath("$[1].passedTestCaseCount").value(2));
+    }
+
+    /**
+     * Two submissions that both read the highest attempt number before either
+     * inserts would pick the same next number. The barrier forces exactly that
+     * interleaving: one must win, and the other must be refused cleanly rather
+     * than stored under a duplicate number or failing as a server error.
+     *
+     * <p>The barrier sits in {@code decrypt} because grading runs after the
+     * attempt number is chosen and before the insert. It cannot sit on the
+     * repository query itself: Mockito cannot call through a Spring Data
+     * interface proxy.</p>
+     */
+    @Test
+    void racingSubmissionsNeverShareAnAttemptNumber() throws Exception {
+        Fixture fixture = runningContest();
+        List<SubmissionResult> oneAnswer = correctAnswers(fixture).subList(0, 1);
+        CyclicBarrier bothHaveChosenANumber = new CyclicBarrier(2);
+        doAnswer(invocation -> {
+            bothHaveChosenANumber.await(10, TimeUnit.SECONDS);
+            return invocation.callRealMethod();
+        }).when(cipher).decrypt(any());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<Integer> statuses = new ArrayList<>();
+        try {
+            List<Future<MvcResult>> racers = new ArrayList<>();
+            for (int racer = 0; racer < 2; racer++) {
+                racers.add(pool.submit(() -> mockMvc.perform(submit(fixture, oneAnswer, null)).andReturn()));
+            }
+            for (Future<MvcResult> racer : racers) {
+                statuses.add(racer.get(30, TimeUnit.SECONDS).getResponse().getStatus());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(List.of(201, 409), statuses.stream().sorted().toList());
+        mockMvc.perform(get(problemPath(fixture.contestId, fixture.problemNum) + "/submissions")
+                        .header("Authorization", "Bearer " + fixture.contestant))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].submissionNum").value(1));
     }
 
     @Test
@@ -394,7 +445,7 @@ class SubmissionApiIntegrationTest {
 
         mockMvc.perform(submit(fixture, List.of(), null)).andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/problems/" + fixture.problemId + "/submissions")
+        mockMvc.perform(get(problemPath(fixture.contestId, fixture.problemNum) + "/submissions")
                         .header("Authorization", "Bearer " + other))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
@@ -452,7 +503,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + second)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(fixture.problemId, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/contests/" + fixture.contestId + "/submissions")
@@ -490,7 +541,7 @@ class SubmissionApiIntegrationTest {
     // ---------- helpers ----------
 
     /** A contest, a problem with two test cases, and a registered contestant. */
-    private record Fixture(String owner, String contestant, String contestId, UUID problemId,
+    private record Fixture(String owner, String contestant, String contestId, int problemNum,
                            Map<UUID, String> testCases) {
     }
 
@@ -499,9 +550,9 @@ class SubmissionApiIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Judged Cup " + UUID.randomUUID(), plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Graded");
-        uploadTestCases(owner, problemId);
-        return new Fixture(owner, contestant, contestId, UUID.fromString(problemId), Map.of());
+        int problemNum = addProblem(owner, contestId, "Graded");
+        uploadTestCases(owner, contestId, problemNum);
+        return new Fixture(owner, contestant, contestId, problemNum, Map.of());
     }
 
     /** A contest that is open, with the contestant registered and holding the test cases. */
@@ -509,13 +560,13 @@ class SubmissionApiIntegrationTest {
         Fixture prepared = preparedContest();
         register(prepared.contestant, prepared.contestId);
         startContestNow(prepared.owner, prepared.contestId);
-        return new Fixture(prepared.owner, prepared.contestant, prepared.contestId, prepared.problemId,
-                fetchTestCases(prepared.contestant, prepared.problemId));
+        return new Fixture(prepared.owner, prepared.contestant, prepared.contestId, prepared.problemNum,
+                fetchTestCases(prepared.contestant, prepared.contestId, prepared.problemNum));
     }
 
     /** Fetches the encrypted test cases and decrypts them, exactly as the client does. */
-    private Map<UUID, String> fetchTestCases(String token, UUID problemId) throws Exception {
-        MvcResult result = mockMvc.perform(get("/api/problems/" + problemId + "/tests")
+    private Map<UUID, String> fetchTestCases(String token, String contestId, int problemNum) throws Exception {
+        MvcResult result = mockMvc.perform(get(problemPath(contestId, problemNum) + "/tests")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -554,7 +605,7 @@ class SubmissionApiIntegrationTest {
         return post("/api/submissions")
                 .header("Authorization", "Bearer " + fixture.contestant)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(new SubmissionRequest(fixture.problemId, results, clientDurationMs)));
+                .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, results, clientDurationMs)));
     }
 
     private String submitAndReturnId(Fixture fixture) throws Exception {
@@ -604,7 +655,7 @@ class SubmissionApiIntegrationTest {
         return field(result, "contestId");
     }
 
-    private String addProblem(String token, String contestId, String title) throws Exception {
+    private int addProblem(String token, String contestId, String title) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -612,11 +663,15 @@ class SubmissionApiIntegrationTest {
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();
-        return field(result, "problemId");
+        return Integer.parseInt(field(result, "problemNum"));
     }
 
-    private void uploadTestCases(String token, String problemId) throws Exception {
-        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+    private String problemPath(String contestId, int problemNum) {
+        return "/api/contests/" + contestId + "/problems/" + problemNum;
+    }
+
+    private void uploadTestCases(String token, String contestId, int problemNum) throws Exception {
+        mockMvc.perform(put(problemPath(contestId, problemNum) + "/testcases")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new TestCaseUploadRequest(

@@ -61,13 +61,13 @@ class SubmissionRateLimitIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner);
-        UUID problemId = addProblemWithTestCases(owner, contestId);
+        int problemNum = addProblemWithTestCases(owner, contestId);
         register(contestant, contestId);
         startContestNow(owner, contestId);
 
-        mockMvc.perform(submit(contestant, problemId))
+        mockMvc.perform(submit(contestant, contestId, problemNum))
                 .andExpect(status().isCreated());
-        mockMvc.perform(submit(contestant, problemId))
+        mockMvc.perform(submit(contestant, contestId, problemNum))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
                 .andExpect(jsonPath("$.error").isNotEmpty());
@@ -78,14 +78,14 @@ class SubmissionRateLimitIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner);
-        UUID problemId = addProblemWithTestCases(owner, contestId);
+        int problemNum = addProblemWithTestCases(owner, contestId);
         register(contestant, contestId);
 
-        mockMvc.perform(submit(contestant, problemId))
+        mockMvc.perform(submit(contestant, contestId, problemNum))
                 .andExpect(status().isConflict());
 
         startContestNow(owner, contestId);
-        mockMvc.perform(submit(contestant, problemId))
+        mockMvc.perform(submit(contestant, contestId, problemNum))
                 .andExpect(status().isCreated());
     }
 
@@ -94,23 +94,23 @@ class SubmissionRateLimitIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String outsider = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner);
-        UUID problemId = addProblemWithTestCases(owner, contestId);
+        int problemNum = addProblemWithTestCases(owner, contestId);
         startContestNow(owner, contestId);
 
         for (int attempt = 0; attempt < 2; attempt++) {
-            mockMvc.perform(submit(outsider, problemId)).andExpect(status().isForbidden());
-            mockMvc.perform(submit(owner, problemId)).andExpect(status().isForbidden());
-            mockMvc.perform(submit(outsider, UUID.randomUUID())).andExpect(status().isNotFound());
+            mockMvc.perform(submit(outsider, contestId, problemNum)).andExpect(status().isForbidden());
+            mockMvc.perform(submit(owner, contestId, problemNum)).andExpect(status().isForbidden());
+            mockMvc.perform(submit(outsider, contestId, problemNum + 1)).andExpect(status().isNotFound());
         }
     }
 
     // ---------- helpers ----------
 
-    private MockHttpServletRequestBuilder submit(String token, UUID problemId) throws Exception {
+    private MockHttpServletRequestBuilder submit(String token, String contestId, int problemNum) throws Exception {
         return post("/api/submissions")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(new SubmissionRequest(problemId, List.of(), null)));
+                .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, List.of(), null)));
     }
 
     private String tokenFor(Role role) {
@@ -132,7 +132,7 @@ class SubmissionRateLimitIntegrationTest {
         return field(result, "contestId");
     }
 
-    private UUID addProblemWithTestCases(String token, String contestId) throws Exception {
+    private int addProblemWithTestCases(String token, String contestId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -140,16 +140,16 @@ class SubmissionRateLimitIntegrationTest {
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();
-        String problemId = field(result, "problemId");
+        int problemNum = Integer.parseInt(field(result, "problemNum"));
 
-        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+        mockMvc.perform(put("/api/contests/" + contestId + "/problems/" + problemNum + "/testcases")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new TestCaseUploadRequest(
                                 List.of(new TestCaseData("in", "out")),
                                 List.of(new TestCaseData("hidden in", "hidden out"))))))
                 .andExpect(status().isOk());
-        return UUID.fromString(problemId);
+        return problemNum;
     }
 
     private void register(String token, String contestId) throws Exception {

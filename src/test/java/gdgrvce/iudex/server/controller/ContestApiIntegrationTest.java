@@ -199,9 +199,9 @@ class ContestApiIntegrationTest {
     void updatesAndDeletesAProblem() throws Exception {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestId = createContest(owner, "Edit Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Original");
+        String problem = addProblem(owner, contestId, "Original");
 
-        mockMvc.perform(patch("/api/problems/" + problemId)
+        mockMvc.perform(patch(problem)
                         .header("Authorization", "Bearer " + owner)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new ProblemRequest("Renamed", null, null, 2000, null, null))))
@@ -209,11 +209,61 @@ class ContestApiIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Renamed"))
                 .andExpect(jsonPath("$.timeLimitMs").value(2000));
 
-        mockMvc.perform(delete("/api/problems/" + problemId).header("Authorization", "Bearer " + owner))
+        mockMvc.perform(delete(problem).header("Authorization", "Bearer " + owner))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/problems/" + problemId).header("Authorization", "Bearer " + owner))
+        mockMvc.perform(get(problem).header("Authorization", "Bearer " + owner))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsRenamingAProblemToABlankTitle() throws Exception {
+        String owner = tokenFor(Role.CONTESTMASTER);
+        String contestId = createContest(owner, "Blank Cup", plusHours(1), plusHours(3));
+        String problem = addProblem(owner, contestId, "Original");
+
+        mockMvc.perform(patch(problem)
+                        .header("Authorization", "Bearer " + owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new ProblemRequest("   ", null, null, null, null, null))))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get(problem).header("Authorization", "Bearer " + owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Original"));
+    }
+
+    @Test
+    void aProblemIsReachableOnlyThroughItsOwnContest() throws Exception {
+        String owner = tokenFor(Role.CONTESTMASTER);
+        String contestId = createContest(owner, "Home Cup", plusHours(1), plusHours(3));
+        String otherContestId = createContest(owner, "Away Cup", plusHours(1), plusHours(3));
+        String problem = addProblem(owner, contestId, "Home Problem");
+        String wrongContest = "/api/contests/" + otherContestId + "/problems/1";
+        String noContest = "/api/contests/" + UUID.randomUUID() + "/problems/1";
+
+        for (String path : List.of(wrongContest, noContest)) {
+            mockMvc.perform(get(path).header("Authorization", "Bearer " + owner))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(get(path + "/tests").header("Authorization", "Bearer " + owner))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(patch(path)
+                            .header("Authorization", "Bearer " + owner)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new ProblemRequest("Hijacked", null, null, null, null, null))))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(put(path + "/testcases")
+                            .header("Authorization", "Bearer " + owner)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new TestCaseUploadRequest(List.of(), List.of()))))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete(path).header("Authorization", "Bearer " + owner))
+                    .andExpect(status().isNotFound());
+        }
+
+        mockMvc.perform(get(problem).header("Authorization", "Bearer " + owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Home Problem"));
     }
 
     // ---------- test data confidentiality ----------
@@ -223,12 +273,12 @@ class ContestApiIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Confidential Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Guarded");
-        uploadTestCases(owner, problemId);
+        String problem = addProblem(owner, contestId, "Guarded");
+        uploadTestCases(owner, problem);
         register(contestant, contestId);
         startContestNow(owner, contestId);
 
-        MvcResult result = mockMvc.perform(get("/api/problems/" + problemId + "/tests")
+        MvcResult result = mockMvc.perform(get(problem + "/tests")
                         .header("Authorization", "Bearer " + contestant))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
@@ -252,11 +302,11 @@ class ContestApiIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Uniform Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Uniform");
+        String problem = addProblem(owner, contestId, "Uniform");
 
         // Identical inputs in both collections still encrypt differently, so a
         // contestant cannot tell which cases repeat or which are the samples.
-        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+        mockMvc.perform(put(problem + "/testcases")
                         .header("Authorization", "Bearer " + owner)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new TestCaseUploadRequest(
@@ -266,7 +316,7 @@ class ContestApiIntegrationTest {
         register(contestant, contestId);
         startContestNow(owner, contestId);
 
-        MvcResult result = mockMvc.perform(get("/api/problems/" + problemId + "/tests")
+        MvcResult result = mockMvc.perform(get(problem + "/tests")
                         .header("Authorization", "Bearer " + contestant))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -284,12 +334,12 @@ class ContestApiIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestant = tokenFor(Role.CONTESTANT);
         String contestId = createContest(owner, "Sample Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Sampled");
-        uploadTestCases(owner, problemId);
+        String problem = addProblem(owner, contestId, "Sampled");
+        uploadTestCases(owner, problem);
         register(contestant, contestId);
         startContestNow(owner, contestId);
 
-        MvcResult result = mockMvc.perform(get("/api/problems/" + problemId)
+        MvcResult result = mockMvc.perform(get(problem)
                         .header("Authorization", "Bearer " + contestant))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.testCaseCount").value(2))
@@ -304,9 +354,9 @@ class ContestApiIntegrationTest {
     void rejectsATestCaseMissingItsExpectedOutput() throws Exception {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestId = createContest(owner, "Invalid Data Cup", plusHours(1), plusHours(3));
-        String problemId = addProblem(owner, contestId, "Needs Outputs");
+        String problem = addProblem(owner, contestId, "Needs Outputs");
 
-        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+        mockMvc.perform(put(problem + "/testcases")
                         .header("Authorization", "Bearer " + owner)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new TestCaseUploadRequest(
@@ -449,11 +499,11 @@ class ContestApiIntegrationTest {
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();
-        return field(result, "problemId");
+        return "/api/contests/" + contestId + "/problems/" + field(result, "problemNum");
     }
 
-    private void uploadTestCases(String token, String problemId) throws Exception {
-        mockMvc.perform(put("/api/problems/" + problemId + "/testcases")
+    private void uploadTestCases(String token, String problem) throws Exception {
+        mockMvc.perform(put(problem + "/testcases")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(new TestCaseUploadRequest(
