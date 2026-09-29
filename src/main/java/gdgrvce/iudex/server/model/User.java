@@ -22,6 +22,10 @@ public class User {
     @Column(nullable = false)
     private Role role = Role.CONTESTANT;
 
+    /** Copied into every token issued; bumping it revokes all of them. */
+    @Column(nullable = false)
+    private int tokenVersion = 0;
+
     public User() {
     }
 
@@ -62,5 +66,13 @@ public class User {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion;
+    }
+
+    public void setTokenVersion(int tokenVersion) {
+        this.tokenVersion = tokenVersion;
     }
 }

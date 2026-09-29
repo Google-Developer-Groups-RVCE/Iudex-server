@@ -12,6 +12,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Handles the work behind registration and login. */
 @Service
@@ -53,5 +54,15 @@ public class AuthService {
 
         User user = userRepository.findByUsername(request.username()).orElseThrow();
         return new AuthResponse(jwtService.generateToken(user), user.getUsername(), user.getRole());
+    }
+
+    /**
+     * Revokes every token the user holds, on every device. Tokens are not
+     * stored, so there is no way to single out the one presented; bumping the
+     * version is what makes all of them fail the filter's check.
+     */
+    @Transactional
+    public void logout(String username) {
+        userRepository.incrementTokenVersion(username);
     }
 }

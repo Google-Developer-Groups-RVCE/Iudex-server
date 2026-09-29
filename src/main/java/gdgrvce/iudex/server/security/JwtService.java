@@ -17,6 +17,9 @@ public class JwtService {
     /** HS256 needs a key at least as long as its 256-bit output. */
     private static final int KEY_BYTES = 32;
 
+    /** The claim holding {@link User#getTokenVersion()} at the time of issue. */
+    private static final String VERSION_CLAIM = "ver";
+
     private final SecretKey signingKey;
     private final long expirationMs;
 
@@ -36,6 +39,7 @@ public class JwtService {
                 .subject(user.getUsername())
                 .claim("role", user.getRole().name())
                 .claim("userId", user.getUserId().toString())
+                .claim(VERSION_CLAIM, user.getTokenVersion())
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(signingKey)
@@ -47,10 +51,20 @@ public class JwtService {
         return parseClaims(token).getSubject();
     }
 
-    /** Checks that the token belongs to this user and has not expired. */
-    public boolean isValid(String token, String username) {
+    /**
+     * Checks that the token belongs to this user, has not expired, and was
+     * issued since the user last logged out.
+     *
+     * <p>A token without a version predates revocation and cannot be matched
+     * against a logout, so it is refused rather than trusted.</p>
+     */
+    public boolean isValid(String token, String username, int currentTokenVersion) {
         Claims claims = parseClaims(token);
-        return claims.getSubject().equals(username) && claims.getExpiration().after(new Date());
+        Integer version = claims.get(VERSION_CLAIM, Integer.class);
+        return claims.getSubject().equals(username)
+                && claims.getExpiration().after(new Date())
+                && version != null
+                && version == currentTokenVersion;
     }
 
     private Claims parseClaims(String token) {
