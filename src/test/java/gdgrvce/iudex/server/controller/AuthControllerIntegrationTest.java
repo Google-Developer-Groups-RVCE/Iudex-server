@@ -84,7 +84,17 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("me_user"))
+                .andExpect(jsonPath("$.userId").isNotEmpty())
                 .andExpect(jsonPath("$.role").value("CONTESTANT"));
+    }
+
+    @Test
+    void theContestmasterPageLoadsWithoutAToken() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Iudex - Contest Master")));
     }
 
     @Test

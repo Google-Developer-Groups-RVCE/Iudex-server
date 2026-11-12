@@ -2,6 +2,7 @@ package gdgrvce.iudex.server.controller;
 
 import gdgrvce.iudex.server.dto.ContestRequest;
 import gdgrvce.iudex.server.dto.ProblemRequest;
+import gdgrvce.iudex.server.dto.SolutionRequest;
 import gdgrvce.iudex.server.dto.TestCaseData;
 import gdgrvce.iudex.server.dto.TestCaseUploadRequest;
 import gdgrvce.iudex.server.model.Role;
@@ -22,6 +23,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 
@@ -464,6 +467,62 @@ class ContestApiIntegrationTest {
 
     // ---------- helpers ----------
 
+    @Test
+    void templatesAreKeptPerLanguageAndMergedOnUpdate() throws Exception {
+        String owner = tokenFor(Role.CONTESTMASTER);
+        String contestId = createContest(owner, "Templates", plusHours(1), plusHours(2));
+        String problem = addProblem(owner, contestId, "Sum");
+
+        Map<String, String> change = new HashMap<>();
+        change.put("CPP", "int main() {}");
+        change.put("python", "");
+        mockMvc.perform(patch(problem)
+                        .header("Authorization", "Bearer " + owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new ProblemRequest(null, null, change, null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.solutionTemplates.cpp").value("int main() {}"))
+                .andExpect(jsonPath("$.solutionTemplates.python").doesNotExist());
+
+        mockMvc.perform(patch(problem)
+                        .header("Authorization", "Bearer " + owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new ProblemRequest(null, null, Map.of("cobol", "x"), null, null, null))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void onlyTheContestmasterSeesTheReferenceSolution() throws Exception {
+        String owner = tokenFor(Role.CONTESTMASTER);
+        String contestant = tokenFor(Role.CONTESTANT);
+        String contestId = createContest(owner, "Solutions", plusHours(1), plusHours(2));
+        String problem = addProblem(owner, contestId, "Sum");
+        register(contestant, contestId);
+        startContestNow(owner, contestId);
+
+        mockMvc.perform(put(problem + "/solution")
+                        .header("Authorization", "Bearer " + owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(new SolutionRequest("cpp", "int main() { return 0; }"))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(problem + "/solution").header("Authorization", "Bearer " + owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("cpp"))
+                .andExpect(jsonPath("$.sourceCode").value("int main() { return 0; }"));
+        mockMvc.perform(get(problem + "/solution").header("Authorization", "Bearer " + contestant))
+                .andExpect(status().isForbidden());
+        String problemBody = mockMvc.perform(get(problem).header("Authorization", "Bearer " + contestant))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertFalse(problemBody.contains("return 0"), problemBody);
+
+        mockMvc.perform(delete(problem + "/solution").header("Authorization", "Bearer " + owner))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get(problem + "/solution").header("Authorization", "Bearer " + owner))
+                .andExpect(status().isNotFound());
+    }
+
     private User saveUser(Role role) {
         User user = new User();
         user.setUsername("user_" + UUID.randomUUID());
@@ -495,7 +554,7 @@ class ContestApiIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest(title, "statement body", "template body",
+                        .content(json(new ProblemRequest(title, "statement body", Map.of("python", "template body"),
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();

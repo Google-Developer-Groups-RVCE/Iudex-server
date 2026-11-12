@@ -2,6 +2,7 @@ package gdgrvce.iudex.server.service;
 
 import gdgrvce.iudex.server.dto.AuthResponse;
 import gdgrvce.iudex.server.dto.LoginRequest;
+import gdgrvce.iudex.server.dto.MeResponse;
 import gdgrvce.iudex.server.dto.RegisterRequest;
 import gdgrvce.iudex.server.exception.UsernameAlreadyExistsException;
 import gdgrvce.iudex.server.model.Role;
@@ -54,6 +55,14 @@ public class AuthService {
 
         User user = userRepository.findByUsername(request.username()).orElseThrow();
         return new AuthResponse(jwtService.generateToken(user), user.getUsername(), user.getRole());
+    }
+
+    /** The signed-in user, as {@code GET /auth/me} reports them. */
+    @Transactional(readOnly = true)
+    public MeResponse me(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user no longer exists"));
+        return new MeResponse(user.getUserId(), user.getUsername(), user.getRole().name());
     }
 
     /**

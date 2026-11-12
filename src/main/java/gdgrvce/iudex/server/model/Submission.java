@@ -9,7 +9,8 @@ import java.util.UUID;
 /**
  * One graded attempt at a problem.
  *
- * <p>Submissions are append-only: nothing ever edits one, so {@link #isNew()}
+ * <p>Submissions are append-only: nothing ever edits one (apart from clearing
+ * a superseded attempt's source, a bulk update that bypasses this entity), so {@link #isNew()}
  * is unconditionally true. Without that, Spring Data would see the assigned
  * id, treat the entity as detached, and save it with {@code merge}, costing a
  * select before every insert. Forcing {@code persist} also means a duplicate
@@ -48,6 +49,24 @@ public class Submission implements Persistable<UUID> {
     // submission time used for scoring.
     @Column(nullable = false)
     private OffsetDateTime receivedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false)
+    private Verdict verdict;
+
+    @Column(nullable = false, updatable = false)
+    private String message;
+
+    @Column(nullable = false, updatable = false)
+    private String language;
+
+    // Kept only for the contestant's latest attempt at the problem; cleared on
+    // older ones by SubmissionRepository.clearSourceOfEarlierAttempts.
+    @Column
+    private String sourceCode;
+
+    @Column(updatable = false)
+    private String compilerOutput;
 
     // Client-reported run time. Untrusted telemetry: it is displayable but must
     // never influence a verdict or a ranking.
@@ -113,6 +132,46 @@ public class Submission implements Persistable<UUID> {
 
     public void setReceivedAt(OffsetDateTime receivedAt) {
         this.receivedAt = receivedAt;
+    }
+
+    public Verdict getVerdict() {
+        return verdict;
+    }
+
+    public void setVerdict(Verdict verdict) {
+        this.verdict = verdict;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public String getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    public String getSourceCode() {
+        return sourceCode;
+    }
+
+    public void setSourceCode(String sourceCode) {
+        this.sourceCode = sourceCode;
+    }
+
+    public String getCompilerOutput() {
+        return compilerOutput;
+    }
+
+    public void setCompilerOutput(String compilerOutput) {
+        this.compilerOutput = compilerOutput;
     }
 
     public Integer getClientDurationMs() {

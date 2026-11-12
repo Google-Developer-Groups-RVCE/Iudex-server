@@ -3,6 +3,8 @@ package gdgrvce.iudex.server.controller;
 import gdgrvce.iudex.server.dto.ProblemRequest;
 import gdgrvce.iudex.server.dto.ProblemResponse;
 import gdgrvce.iudex.server.dto.EncryptedTestCase;
+import gdgrvce.iudex.server.dto.SolutionRequest;
+import gdgrvce.iudex.server.dto.SolutionResponse;
 import gdgrvce.iudex.server.dto.TestCaseUploadRequest;
 import gdgrvce.iudex.server.service.ProblemService;
 import org.springframework.http.ResponseEntity;
@@ -70,5 +72,29 @@ public class ProblemController {
                                             @AuthenticationPrincipal UserDetails principal,
                                             @RequestBody TestCaseUploadRequest request) {
         return problemService.replaceTestCases(contestId, problemNum, principal, request);
+    }
+
+    /** The reference solution. Contestmaster and administrators only. */
+    @GetMapping("/solution")
+    public SolutionResponse solution(@PathVariable UUID contestId,
+                                     @PathVariable int problemNum,
+                                     @AuthenticationPrincipal UserDetails principal) {
+        return problemService.getSolution(contestId, problemNum, principal);
+    }
+
+    @PutMapping("/solution")
+    public SolutionResponse putSolution(@PathVariable UUID contestId,
+                                        @PathVariable int problemNum,
+                                        @AuthenticationPrincipal UserDetails principal,
+                                        @RequestBody SolutionRequest request) {
+        return problemService.putSolution(contestId, problemNum, principal, request);
+    }
+
+    @DeleteMapping("/solution")
+    public ResponseEntity<Void> deleteSolution(@PathVariable UUID contestId,
+                                               @PathVariable int problemNum,
+                                               @AuthenticationPrincipal UserDetails principal) {
+        problemService.deleteSolution(contestId, problemNum, principal);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -2,12 +2,13 @@ package gdgrvce.iudex.server.service;
 
 import gdgrvce.iudex.server.dto.SubmissionRequest;
 import gdgrvce.iudex.server.dto.SubmissionResponse;
-import gdgrvce.iudex.server.dto.SubmissionResult;
+import gdgrvce.iudex.server.dto.SubmissionSource;
 import gdgrvce.iudex.server.exception.ContestStateException;
 import gdgrvce.iudex.server.exception.ForbiddenOperationException;
 import gdgrvce.iudex.server.exception.ResourceNotFoundException;
 import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.model.Contest;
+import gdgrvce.iudex.server.model.Language;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.Submission;
@@ -21,11 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,8 +31,12 @@ import java.util.UUID;
  * <p>The client runs the contestant's program against the encrypted test cases
  * it was given and reports what the program printed. This service decrypts
  * those outputs, compares them with the expected ones held in file storage, and
- * derives the passed count. No score is ever taken from the client, and the
- * expected outputs never leave the server.</p>
+ * derives the verdict and passed count (see {@link Grader}). No score or
+ * verdict is ever taken from the client, and the expected outputs never leave
+ * the server.</p>
+ *
+ * <p>The source code travels with every attempt, but only a contestant's latest
+ * attempt at a problem keeps it.</p>
  *
  * <p>Submissions are immutable once graded, so there is no update path here.
  * They are removed only as collateral when a problem, a contest, or a
@@ -49,17 +50,20 @@ public class SubmissionService {
     private final TestCaseCipher cipher;
     private final ContestAccessService access;
     private final SubmissionRateLimiter rateLimiter;
+    private final SourceCodeLimit sourceCodeLimit;
 
     public SubmissionService(SubmissionRepository submissionRepository,
                              FileStorageService fileStorageService,
                              TestCaseCipher cipher,
                              ContestAccessService access,
-                             SubmissionRateLimiter rateLimiter) {
+                             SubmissionRateLimiter rateLimiter,
+                             SourceCodeLimit sourceCodeLimit) {
         this.submissionRepository = submissionRepository;
         this.fileStorageService = fileStorageService;
         this.cipher = cipher;
         this.access = access;
         this.rateLimiter = rateLimiter;
+        this.sourceCodeLimit = sourceCodeLimit;
     }
 
     /** Grades one attempt and records it against the server clock. */
@@ -72,6 +76,8 @@ public class SubmissionService {
         if (request.clientDurationMs() != null && request.clientDurationMs() < 0) {
             throw new IllegalArgumentException("clientDurationMs must not be negative");
         }
+        Language language = Language.fromId(request.language());
+        sourceCodeLimit.check("sourceCode", request.sourceCode());
 
         Problem problem = access.requireProblem(request.contestId(), request.problemNum());
         Contest contest = problem.getContest();
@@ -80,27 +86,65 @@ public class SubmissionService {
         // early or unregistered attempt cannot lock a contestant out once it opens.
         rateLimiter.check(user.getUserId());
 
-        Map<UUID, String> expected = expectedOutputs(contest, problem);
-        if (expected.isEmpty()) {
+        List<TestCase> samples;
+        List<TestCase> hidden;
+        try {
+            samples = fileStorageService.readSampleTestCases(contest, problem);
+            hidden = fileStorageService.readHiddenTestCases(contest, problem);
+        } catch (IOException exception) {
+            throw new StorageException("Unable to read test cases", exception);
+        }
+        if (samples.isEmpty() && hidden.isEmpty()) {
             throw new ContestStateException("This problem has no test cases to grade against");
         }
+
+        Grader.Grade grade = Grader.grade(samples, hidden, request.compilation(), request.results(),
+                cipher::decrypt);
 
         Submission submission = new Submission();
         submission.setSubmissionId(UUID.randomUUID());
         submission.setSubmissionNum(nextSubmissionNum(user, problem));
         submission.setUser(user);
         submission.setProblem(problem);
-        submission.setPassedTestCaseCount(grade(expected, request.results()));
+        submission.setVerdict(grade.verdict());
+        submission.setMessage(grade.message());
+        submission.setPassedTestCaseCount(grade.passed());
+        submission.setCompilerOutput(grade.compilerOutput());
+        submission.setLanguage(language.id());
+        submission.setSourceCode(request.sourceCode());
         // The server clock decides when this arrived; the client does not get a say.
         submission.setReceivedAt(OffsetDateTime.now());
         submission.setClientDurationMs(request.clientDurationMs());
 
-        return toResponse(submissionRepository.save(submission));
+        Submission saved = submissionRepository.saveAndFlush(submission);
+        ProblemId problemId = problem.getProblemId();
+        submissionRepository.clearSourceOfEarlierAttempts(problemId.getContestId(), problemId.getProblemNum(),
+                user.getUserId(), saved.getSubmissionId());
+        return toResponse(saved);
+    }
+
+    /**
+     * The source code of a submission, for its author, the contestmaster, or an
+     * administrator. Only a contestant's latest attempt at a problem keeps it.
+     */
+    @Transactional(readOnly = true)
+    public SubmissionSource source(UUID submissionId, UserDetails principal) {
+        Submission submission = readable(submissionId, principal);
+        if (submission.getSourceCode() == null) {
+            throw new ResourceNotFoundException(
+                    "Source code is kept only for the latest attempt at a problem");
+        }
+        return new SubmissionSource(submission.getSubmissionId(), submission.getLanguage(),
+                submission.getSourceCode());
     }
 
     /** Returns one submission to the contestant who made it, or to the contestmaster. */
     @Transactional(readOnly = true)
     public SubmissionResponse get(UUID submissionId, UserDetails principal) {
+        return toResponse(readable(submissionId, principal));
+    }
+
+    private Submission readable(UUID submissionId, UserDetails principal) {
         User user = access.currentUser(principal);
         Submission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("No such submission: " + submissionId));
@@ -110,7 +154,7 @@ public class SubmissionService {
                 && !access.owns(contest, user) && !access.isAdmin(user)) {
             throw new ForbiddenOperationException("Only the contestant or the contestmaster may read that");
         }
-        return toResponse(submission);
+        return submission;
     }
 
     /**
@@ -143,56 +187,6 @@ public class SubmissionService {
                 .toList();
     }
 
-    /**
-     * Counts the test cases whose reported output matches the expected one.
-     *
-     * <p>An output for a test case the problem does not have is ignored rather
-     * than rejected, so replacing the test data under an in-flight submission
-     * does not fail it outright. A repeated test case id counts once: the first
-     * answer stands, so a client cannot improve its score by sending a case
-     * twice.</p>
-     */
-    private int grade(Map<UUID, String> expected, List<SubmissionResult> results) {
-        if (results == null || results.isEmpty()) {
-            return 0;
-        }
-
-        Set<UUID> seen = new HashSet<>();
-        int passed = 0;
-        for (SubmissionResult result : results) {
-            if (result == null || result.testCaseId() == null) {
-                throw new IllegalArgumentException("every result needs a testCaseId");
-            }
-            if (result.encryptedOutput() == null) {
-                throw new IllegalArgumentException("every result needs an encryptedOutput");
-            }
-            String want = expected.get(result.testCaseId());
-            if (want == null || !seen.add(result.testCaseId())) {
-                continue;
-            }
-            if (OutputComparator.matches(cipher.decrypt(result.encryptedOutput()), want)) {
-                passed++;
-            }
-        }
-        return passed;
-    }
-
-    /** Both collections count towards the score; only the client can tell them apart. */
-    private Map<UUID, String> expectedOutputs(Contest contest, Problem problem) {
-        Map<UUID, String> expected = new HashMap<>();
-        try {
-            for (TestCase testCase : fileStorageService.readSampleTestCases(contest, problem)) {
-                expected.put(testCase.id(), testCase.output());
-            }
-            for (TestCase testCase : fileStorageService.readHiddenTestCases(contest, problem)) {
-                expected.put(testCase.id(), testCase.output());
-            }
-        } catch (IOException exception) {
-            throw new StorageException("Unable to read test cases", exception);
-        }
-        return expected;
-    }
-
     private int nextSubmissionNum(User user, Problem problem) {
         ProblemId problemId = problem.getProblemId();
         return submissionRepository.findHighestSubmissionNum(
@@ -208,9 +202,13 @@ public class SubmissionService {
                 submission.getSubmissionNum(),
                 submission.getUser().getUserId(),
                 submission.getUser().getUsername(),
+                submission.getLanguage(),
+                submission.getVerdict(),
+                submission.getMessage(),
                 submission.getPassedTestCaseCount(),
                 problem.getTestCaseCount(),
                 submission.getReceivedAt(),
-                submission.getClientDurationMs());
+                submission.getClientDurationMs(),
+                submission.getCompilerOutput());
     }
 }

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,7 +37,7 @@ class FileStorageServiceTests {
         assertTrue(service.contestExists(contest));
         assertTrue(service.problemExists(contest, problem));
         assertEquals("Add two numbers", Files.readString(problemDirectory.resolve("statement.txt")));
-        assertEquals("", Files.readString(problemDirectory.resolve("template.txt")));
+        assertEquals(java.util.Map.of(), service.readTemplates(contest, problem));
         assertEquals(List.of(), service.readSampleTestCases(contest, problem));
         assertEquals(List.of(), service.readHiddenTestCases(contest, problem));
     }

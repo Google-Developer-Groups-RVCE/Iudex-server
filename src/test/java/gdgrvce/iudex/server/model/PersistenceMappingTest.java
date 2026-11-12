@@ -302,6 +302,10 @@ class PersistenceMappingTest {
         submission.setUser(user);
         submission.setProblem(problem);
         submission.setPassedTestCaseCount(passed);
+        submission.setVerdict(Verdict.WRONG_ANSWER);
+        submission.setMessage("Wrong answer on a hidden test case");
+        submission.setLanguage("python");
+        submission.setSourceCode("print(1)");
         submission.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS));
         submission.setClientDurationMs(10);
         return submission;

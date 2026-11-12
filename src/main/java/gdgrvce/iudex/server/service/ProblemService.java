@@ -3,14 +3,19 @@ package gdgrvce.iudex.server.service;
 import gdgrvce.iudex.server.dto.ProblemRequest;
 import gdgrvce.iudex.server.dto.ProblemResponse;
 import gdgrvce.iudex.server.dto.ProblemSummary;
+import gdgrvce.iudex.server.dto.SolutionRequest;
+import gdgrvce.iudex.server.dto.SolutionResponse;
 import gdgrvce.iudex.server.dto.TestCaseData;
 import gdgrvce.iudex.server.dto.EncryptedTestCase;
 import gdgrvce.iudex.server.dto.TestCaseUploadRequest;
+import gdgrvce.iudex.server.exception.ResourceNotFoundException;
 import gdgrvce.iudex.server.exception.StorageException;
 import gdgrvce.iudex.server.model.Contest;
+import gdgrvce.iudex.server.model.Language;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.ProblemMetadata;
+import gdgrvce.iudex.server.model.ReferenceSolution;
 import gdgrvce.iudex.server.model.TestCase;
 import gdgrvce.iudex.server.model.User;
 import gdgrvce.iudex.server.repository.ProblemRepository;
@@ -27,13 +32,17 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
  * Create, read, update, and delete for problems and their test data.
  *
  * <p>The database holds only a problem's identity and ordering. Title, limits,
- * score, statement, template, and test cases come from file storage.</p>
+ * score, statement, per-language templates, the reference solution, and test
+ * cases come from file storage.</p>
  *
  * <p>Every write keeps the two in step the same way: database changes are
  * flushed first, so a constraint failure surfaces before anything on disk is
@@ -56,17 +65,20 @@ public class ProblemService {
     private final FileStorageService fileStorageService;
     private final TestCaseCipher cipher;
     private final ContestAccessService access;
+    private final SourceCodeLimit sourceCodeLimit;
 
     public ProblemService(ProblemRepository problemRepository,
                           SubmissionRepository submissionRepository,
                           FileStorageService fileStorageService,
                           TestCaseCipher cipher,
-                          ContestAccessService access) {
+                          ContestAccessService access,
+                          SourceCodeLimit sourceCodeLimit) {
         this.problemRepository = problemRepository;
         this.submissionRepository = submissionRepository;
         this.fileStorageService = fileStorageService;
         this.cipher = cipher;
         this.access = access;
+        this.sourceCodeLimit = sourceCodeLimit;
     }
 
     /** Adds a problem to a contest that has not started yet. */
@@ -80,6 +92,7 @@ public class ProblemService {
         if (request.title() == null || request.title().isBlank()) {
             throw new IllegalArgumentException("title must not be blank");
         }
+        Map<String, String> templates = mergeTemplates(new TreeMap<>(), request.solutionTemplates());
 
         ProblemId problemId = new ProblemId();
         problemId.setContestId(contestId);
@@ -107,8 +120,8 @@ public class ProblemService {
             // on failure, and an earlier undo could remove a directory this call never made.
             undoOnRollback("creating problem " + problemId.getProblemNum(),
                     () -> deleteFilesIfPresent(contest, saved));
-            if (request.solutionTemplate() != null) {
-                fileStorageService.saveTemplateSolution(contest, saved, request.solutionTemplate());
+            if (!templates.isEmpty()) {
+                fileStorageService.saveTemplates(contest, saved, templates);
             }
         } catch (IOException exception) {
             throw new StorageException("Unable to create problem storage", exception);
@@ -160,6 +173,9 @@ public class ProblemService {
         }
 
         ProblemFiles before = snapshot(contest, problem);
+        Map<String, String> templates = request.solutionTemplates() == null
+                ? null
+                : mergeTemplates(new TreeMap<>(before.templates()), request.solutionTemplates());
         ProblemMetadata current = before.metadata();
         ProblemMetadata updated = new ProblemMetadata(
                 request.title() == null ? current.title() : request.title().trim(),
@@ -173,8 +189,8 @@ public class ProblemService {
             if (request.statement() != null) {
                 fileStorageService.saveStatement(contest, problem, request.statement());
             }
-            if (request.solutionTemplate() != null) {
-                fileStorageService.saveTemplateSolution(contest, problem, request.solutionTemplate());
+            if (templates != null) {
+                fileStorageService.saveTemplates(contest, problem, templates);
             }
         } catch (IOException exception) {
             throw new StorageException("Unable to update problem storage", exception);
@@ -297,7 +313,7 @@ public class ProblemService {
                     problem.getProblemId().getProblemNum(),
                     metadata.title(),
                     fileStorageService.readStatement(contest, problem),
-                    fileStorageService.readTemplateSolution(contest, problem),
+                    fileStorageService.readTemplates(contest, problem),
                     metadata.timeLimitMs(),
                     metadata.memoryLimitMb(),
                     metadata.score(),
@@ -319,7 +335,8 @@ public class ProblemService {
     /** Everything file storage holds for one problem, kept so a rolled-back write can be undone. */
     private record ProblemFiles(ProblemMetadata metadata,
                                 String statement,
-                                String template,
+                                Map<String, String> templates,
+                                Optional<ReferenceSolution> solution,
                                 List<TestCase> samples,
                                 List<TestCase> hidden) {
     }
@@ -334,7 +351,8 @@ public class ProblemService {
             return new ProblemFiles(
                     fileStorageService.readProblemMetadata(contest, problem),
                     fileStorageService.readStatement(contest, problem),
-                    fileStorageService.readTemplateSolution(contest, problem),
+                    fileStorageService.readTemplates(contest, problem),
+                    fileStorageService.readSolution(contest, problem),
                     fileStorageService.readSampleTestCases(contest, problem),
                     fileStorageService.readHiddenTestCases(contest, problem));
         } catch (IOException exception) {
@@ -346,7 +364,10 @@ public class ProblemService {
     private void restore(Contest contest, Problem problem, ProblemFiles files) throws IOException {
         deleteFilesIfPresent(contest, problem);
         fileStorageService.createProblemFiles(contest, problem, files.statement(), files.metadata());
-        fileStorageService.saveTemplateSolution(contest, problem, files.template());
+        fileStorageService.saveTemplates(contest, problem, files.templates());
+        if (files.solution().isPresent()) {
+            fileStorageService.saveSolution(contest, problem, files.solution().get());
+        }
         fileStorageService.saveSampleTestCases(contest, problem, files.samples());
         fileStorageService.saveHiddenTestCases(contest, problem, files.hidden());
     }
@@ -379,6 +400,80 @@ public class ProblemService {
                 }
             }
         });
+    }
+
+    /**
+     * The contestmaster's reference solution. Never visible to contestants:
+     * only the contest's owner or an administrator gets past the check, and it
+     * is checked before anything is looked up, so a contestant cannot even
+     * learn whether one exists.
+     */
+    @Transactional(readOnly = true)
+    public SolutionResponse getSolution(UUID contestId, int problemNum, UserDetails principal) {
+        Problem problem = ownedProblem(contestId, problemNum, principal);
+        try {
+            ReferenceSolution solution = fileStorageService.readSolution(problem.getContest(), problem)
+                    .orElseThrow(() -> new ResourceNotFoundException("This problem has no reference solution"));
+            return new SolutionResponse(contestId, problemNum, solution.language(), solution.sourceCode());
+        } catch (IOException exception) {
+            throw new StorageException("Unable to read the reference solution", exception);
+        }
+    }
+
+    /**
+     * Stores or replaces the reference solution. Allowed in any contest state:
+     * nobody but the contestmaster ever sees it, and it plays no part in grading.
+     */
+    @Transactional(readOnly = true)
+    public SolutionResponse putSolution(UUID contestId, int problemNum, UserDetails principal,
+                                        SolutionRequest request) {
+        Problem problem = ownedProblem(contestId, problemNum, principal);
+        Language language = Language.fromId(request.language());
+        sourceCodeLimit.check("sourceCode", request.sourceCode());
+        try {
+            fileStorageService.saveSolution(problem.getContest(), problem,
+                    new ReferenceSolution(language.id(), request.sourceCode()));
+        } catch (IOException exception) {
+            throw new StorageException("Unable to store the reference solution", exception);
+        }
+        return new SolutionResponse(contestId, problemNum, language.id(), request.sourceCode());
+    }
+
+    @Transactional(readOnly = true)
+    public void deleteSolution(UUID contestId, int problemNum, UserDetails principal) {
+        Problem problem = ownedProblem(contestId, problemNum, principal);
+        try {
+            fileStorageService.deleteSolution(problem.getContest(), problem);
+        } catch (IOException exception) {
+            throw new StorageException("Unable to delete the reference solution", exception);
+        }
+    }
+
+    private Problem ownedProblem(UUID contestId, int problemNum, UserDetails principal) {
+        User user = access.currentUser(principal);
+        access.requireContestOwner(access.requireContest(contestId), user);
+        return access.requireProblem(contestId, problemNum);
+    }
+
+    /**
+     * Applies requested template changes to {@code stored}: a blank value
+     * removes that language, anything else replaces it. Language ids are
+     * validated and normalised, so a stored key is always a supported id.
+     */
+    private Map<String, String> mergeTemplates(Map<String, String> stored, Map<String, String> requested) {
+        if (requested == null) {
+            return stored;
+        }
+        requested.forEach((languageId, template) -> {
+            String id = Language.fromId(languageId).id();
+            if (template == null || template.isBlank()) {
+                stored.remove(id);
+            } else {
+                sourceCodeLimit.check("solutionTemplates." + id, template);
+                stored.put(id, template);
+            }
+        });
+        return stored;
     }
 
     private int orDefault(Integer supplied, int fallback) {

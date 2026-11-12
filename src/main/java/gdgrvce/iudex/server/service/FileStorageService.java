@@ -10,13 +10,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import gdgrvce.iudex.server.model.Contest;
 import gdgrvce.iudex.server.model.Problem;
 import gdgrvce.iudex.server.model.ProblemId;
 import gdgrvce.iudex.server.model.ProblemMetadata;
+import gdgrvce.iudex.server.model.ReferenceSolution;
 import gdgrvce.iudex.server.model.TestCase;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,15 +31,17 @@ import org.springframework.stereotype.Service;
  * Stores contest problem content on the local filesystem.
  *
  * <p>The database remains the source of truth for contest and problem
- * metadata. This service stores only the statement, template solution, and
- * sample or hidden test cases.</p>
+ * metadata. This service stores only the statement, the solution templates
+ * (one per language), the contestmaster's reference solution, and sample or
+ * hidden test cases.</p>
  */
 @Service
 public class FileStorageService {
 
     private static final String METADATA_FILE = "problem.json";
     private static final String STATEMENT_FILE = "statement.txt";
-    private static final String TEMPLATE_FILE = "template.txt";
+    private static final String TEMPLATES_FILE = "templates.json";
+    private static final String SOLUTION_FILE = "solution.json";
     private static final String SAMPLE_TEST_CASES_FILE = "sample_testcases.json";
     private static final String HIDDEN_TEST_CASES_FILE = "hidden_testcases.json";
 
@@ -80,8 +86,8 @@ public class FileStorageService {
     /**
      * Creates a problem directory and its initial files atomically. Files are
      * written to a temporary directory first, then the completed directory is
-     * atomically moved to the problem directory. The template starts empty,
-     * and both testcase files start as empty JSON arrays. A failed creation
+     * atomically moved to the problem directory. There are no templates and no
+     * reference solution yet, and both testcase files start as empty JSON arrays. A failed creation
      * removes the temporary directory and leaves no problem directory behind.
      */
     public void createProblemFiles(Contest contest, Problem problem, String statement) throws IOException {
@@ -107,7 +113,7 @@ public class FileStorageService {
         try {
             writeJson(temporaryDirectory.resolve(METADATA_FILE), metadata);
             Files.writeString(temporaryDirectory.resolve(STATEMENT_FILE), statement, StandardCharsets.UTF_8);
-            Files.writeString(temporaryDirectory.resolve(TEMPLATE_FILE), "", StandardCharsets.UTF_8);
+            writeJson(temporaryDirectory.resolve(TEMPLATES_FILE), Map.of());
             writeTestCases(temporaryDirectory.resolve(SAMPLE_TEST_CASES_FILE), List.of());
             writeTestCases(temporaryDirectory.resolve(HIDDEN_TEST_CASES_FILE), List.of());
             Files.move(temporaryDirectory, problemDirectory, StandardCopyOption.ATOMIC_MOVE);
@@ -143,11 +149,24 @@ public class FileStorageService {
                 StandardCharsets.UTF_8);
     }
 
-    /** Replaces the template solution. */
-    public void saveTemplateSolution(Contest contest, Problem problem, String template) throws IOException {
+    /** Replaces the solution templates, keyed by language id. */
+    public void saveTemplates(Contest contest, Problem problem, Map<String, String> templates) throws IOException {
+        Objects.requireNonNull(templates, "templates must not be null");
         requireProblemExists(contest, problem);
-        Files.writeString(problemDirectory(contest, problem).resolve(TEMPLATE_FILE), template,
-                StandardCharsets.UTF_8);
+        writeJson(problemDirectory(contest, problem).resolve(TEMPLATES_FILE), new TreeMap<>(templates));
+    }
+
+    /** Stores the reference solution, replacing any earlier one. */
+    public void saveSolution(Contest contest, Problem problem, ReferenceSolution solution) throws IOException {
+        Objects.requireNonNull(solution, "solution must not be null");
+        requireProblemExists(contest, problem);
+        writeJson(problemDirectory(contest, problem).resolve(SOLUTION_FILE), solution);
+    }
+
+    /** Removes the reference solution, if there is one. */
+    public void deleteSolution(Contest contest, Problem problem) throws IOException {
+        requireProblemExists(contest, problem);
+        Files.deleteIfExists(problemDirectory(contest, problem).resolve(SOLUTION_FILE));
     }
 
     /** Replaces the sample testcase collection. */
@@ -167,9 +186,28 @@ public class FileStorageService {
         return Files.readString(problemDirectory(contest, problem).resolve(STATEMENT_FILE), StandardCharsets.UTF_8);
     }
 
-    /** Reads the template solution. */
-    public String readTemplateSolution(Contest contest, Problem problem) throws IOException {
-        return Files.readString(problemDirectory(contest, problem).resolve(TEMPLATE_FILE), StandardCharsets.UTF_8);
+    /**
+     * Reads the solution templates, keyed by language id. A problem stored
+     * before templates were per-language has none.
+     */
+    public Map<String, String> readTemplates(Contest contest, Problem problem) throws IOException {
+        Path file = problemDirectory(contest, problem).resolve(TEMPLATES_FILE);
+        if (!Files.exists(file)) {
+            return new TreeMap<>();
+        }
+        return objectMapper.readValue(Files.readString(file, StandardCharsets.UTF_8),
+                new TypeReference<TreeMap<String, String>>() {
+                });
+    }
+
+    /** Reads the reference solution, if the contestmaster has uploaded one. */
+    public Optional<ReferenceSolution> readSolution(Contest contest, Problem problem) throws IOException {
+        Path file = problemDirectory(contest, problem).resolve(SOLUTION_FILE);
+        if (!Files.exists(file)) {
+            return Optional.empty();
+        }
+        return Optional.of(objectMapper.readValue(Files.readString(file, StandardCharsets.UTF_8),
+                ReferenceSolution.class));
     }
 
     /** Reads the sample testcase collection. */

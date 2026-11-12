@@ -8,7 +8,6 @@ import gdgrvce.iudex.server.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,12 +51,6 @@ public class AuthController {
     /** Returns the user that the security filter found in the JWT. */
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal UserDetails principal) {
-        String role = principal.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .findFirst()
-                .map(authority -> authority.replaceFirst("^ROLE_", ""))
-                .orElse(null);
-
-        return new MeResponse(principal.getUsername(), role);
+        return authService.me(principal.getUsername());
     }
 }

@@ -31,6 +31,18 @@ curl -X PATCH localhost:8080/api/users/{userId}/role \
   -d '{"role":"CONTESTMASTER"}'
 ```
 
+## Contest master page
+
+Open the server's root URL (e.g. `http://localhost:8080/`) in a browser and log
+in as a contestmaster (or administrator). The page lists the contests you
+created and lets you create, edit and delete contests, add or update problems
+by uploading a `.json` file (statement, limits, templates, sample and hidden
+test cases, reference solution -- the format is shown on the page), and see
+participants, submissions and each contestant's latest source.
+
+It is a single static file, `src/main/resources/static/index.html`, and uses
+only the public API with the logged-in user's token.
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -43,6 +55,7 @@ curl -X PATCH localhost:8080/api/users/{userId}/role \
 | `IUDEX_STORAGE_ROOT` | `./storage` | Where problem content and test cases live. |
 | `IUDEX_ADMIN_USERNAME` | `admin` | Bootstrap administrator, used only when no administrator exists. |
 | `IUDEX_ADMIN_PASSWORD` | generated and logged | As above. |
+| `IUDEX_SOURCE_MAX_BYTES` | `65536` | Largest submission, template, or reference solution (UTF-8 bytes, at most 65536). |
 
 Generate a secret with:
 
@@ -62,15 +75,34 @@ The server never runs contestant code, and never takes a score from the client.
    Expected outputs are not in the response type at all.
 2. The client decrypts the inputs, runs the contestant's program, and encrypts
    what the program printed.
-3. `POST /api/submissions` sends those outputs. The server decrypts them,
-   compares each against the expected output it holds in file storage, and
-   derives `passedTestCaseCount` itself.
+3. `POST /api/submissions` sends the language, the source code, the
+   client's compile result, and for every test case its encrypted output and
+   how the run ended (`SUCCESS`, `RUNTIME_ERROR`, `TIME_LIMIT_EXCEEDED`,
+   `MEMORY_LIMIT_EXCEEDED`, `OUTPUT_LIMIT_EXCEEDED`). The server decrypts the
+   outputs, compares each against the expected output it holds in file
+   storage, and derives the verdict and `passedTestCaseCount` itself.
 
 Comparison ignores trailing whitespace, line ending style, and trailing blank
 lines. Leading whitespace is significant.
 
-The response reports how many test cases passed, never which ones — naming the
-failures would describe the shape of the hidden data.
+The verdict is one of `ACCEPTED`, `WRONG_ANSWER`, `COMPILATION_ERROR`,
+`RUNTIME_ERROR`, `TIME_LIMIT_EXCEEDED`, `MEMORY_LIMIT_EXCEEDED`,
+`OUTPUT_LIMIT_EXCEEDED` or `SYSTEM_ERROR`:
+
+- A reported compile failure is a compilation error; its diagnostics are kept.
+- A test case reported twice, or one the problem does not have, is a system
+  error, so a modified client cannot manufacture a count.
+- Otherwise the first failing test case, in order, decides. A reported failure
+  status can only fail a test, never pass it.
+- A run that passes everything it reported but left test cases out is a
+  system error. Only a complete, matching run is accepted.
+
+The message names a failing test only when it is a sample (public anyway);
+a hidden failure is reported as "on a hidden test case".
+
+Source code is stored with each attempt, but only a contestant's latest attempt
+at each problem keeps it. `GET /api/submissions/{id}/source` returns it to its
+author or the contestmaster.
 
 **What the encryption does and does not do.** The client must hold the key to
 run the tests, so this stops test data being read straight off the API, and
@@ -91,10 +123,24 @@ The database holds identity and ordering only. Problem content lives on disk:
 {IUDEX_STORAGE_ROOT}/{contestId}/{problemNum}/
     problem.json           title, time and memory limits, score
     statement.txt
-    template.txt
+    templates.json         starting code per language: {"cpp": "...", "python": "..."}
+    solution.json          the contestmaster's reference solution, if uploaded
     sample_testcases.json
     hidden_testcases.json
 ```
+
+## Templates and reference solutions
+
+A problem's `solutionTemplates` maps a language id (`cpp`, `java`, `python`) to
+the starting code contestants get in that language -- typically the program
+that reads the input and calls an empty function for them to complete. On
+update the map is merged into what is stored; a blank value removes a language.
+
+`PUT`, `GET` and `DELETE /api/contests/{id}/problems/{n}/solution` manage the
+contestmaster's reference solution, `{"language": "...", "sourceCode": "..."}`.
+Only the contest's contestmaster and administrators can reach it, at any point
+in the contest. It is never part of a contestant-facing response and plays no
+part in grading; it is kept for reference and post-contest analysis.
 
 ## Tests
 

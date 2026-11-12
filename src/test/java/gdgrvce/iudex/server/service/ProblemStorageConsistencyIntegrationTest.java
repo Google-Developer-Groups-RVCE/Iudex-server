@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -78,12 +79,12 @@ class ProblemStorageConsistencyIntegrationTest {
         String owner = tokenFor(Role.CONTESTMASTER);
         String contestId = createContest(owner);
         doThrow(new IOException("disk full")).doCallRealMethod()
-                .when(fileStorageService).saveTemplateSolution(any(), any(), any());
+                .when(fileStorageService).saveTemplates(any(), any(), any());
 
         mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + owner)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest("Doomed", "statement", "template", null, null, null))))
+                        .content(json(new ProblemRequest("Doomed", "statement", Map.of("python", "template"), null, null, null))))
                 .andExpect(status().isInternalServerError());
 
         assertFalse(Files.exists(Path.of(storageRoot, contestId, "1")),
@@ -180,12 +181,12 @@ class ProblemStorageConsistencyIntegrationTest {
             invocation.callRealMethod();
             failTheCommit();
             return null;
-        }).when(fileStorageService).saveTemplateSolution(any(), any(), any());
+        }).when(fileStorageService).saveTemplates(any(), any(), any());
 
         mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + owner)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest("Doomed", "statement", "template", null, null, null))))
+                        .content(json(new ProblemRequest("Doomed", "statement", Map.of("python", "template"), null, null, null))))
                 .andExpect(status().isInternalServerError());
 
         assertFalse(Files.exists(Path.of(storageRoot, contestId, "1")),
@@ -213,7 +214,7 @@ class ProblemStorageConsistencyIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Survivor"))
                 .andExpect(jsonPath("$.statement").value("statement body"))
-                .andExpect(jsonPath("$.solutionTemplate").value("template body"))
+                .andExpect(jsonPath("$.solutionTemplates.python").value("template body"))
                 .andExpect(jsonPath("$.testCaseCount").value(2))
                 .andExpect(jsonPath("$.sampleTestCases[0].input").value("sample in"));
     }
@@ -257,7 +258,7 @@ class ProblemStorageConsistencyIntegrationTest {
         mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest(title, "statement body", "template body",
+                        .content(json(new ProblemRequest(title, "statement body", Map.of("python", "template body"),
                                 null, null, null))))
                 .andExpect(status().isCreated());
     }

@@ -23,6 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -110,7 +111,7 @@ class SubmissionRateLimitIntegrationTest {
         return post("/api/submissions")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, List.of(), null)));
+                .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, "python", "print(input())", null, List.of(), null)));
     }
 
     private String tokenFor(Role role) {
@@ -136,7 +137,7 @@ class SubmissionRateLimitIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest("Limits", "statement body", "template body",
+                        .content(json(new ProblemRequest("Limits", "statement body", Map.of("python", "template body"),
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();

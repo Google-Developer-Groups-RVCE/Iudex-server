@@ -35,6 +35,22 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
                                           @Param("problemNum") int problemNum,
                                           @Param("userId") UUID userId);
 
+    /**
+     * Drops the stored source of every earlier attempt by this contestant at
+     * this problem, so only the latest attempt keeps its code.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Submission s set s.sourceCode = null "
+            + "where s.problem.problemId.contestId = :contestId "
+            + "and s.problem.problemId.problemNum = :problemNum "
+            + "and s.user.userId = :userId "
+            + "and s.submissionId <> :keep "
+            + "and s.sourceCode is not null")
+    int clearSourceOfEarlierAttempts(@Param("contestId") UUID contestId,
+                                     @Param("problemNum") int problemNum,
+                                     @Param("userId") UUID userId,
+                                     @Param("keep") UUID keep);
+
     /** Every submission in a contest, for the contestmaster's review. */
     @Query("select s from Submission s where s.problem.problemId.contestId = :contestId "
             + "order by s.receivedAt")

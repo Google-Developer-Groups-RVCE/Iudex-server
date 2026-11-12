@@ -2,6 +2,7 @@ package gdgrvce.iudex.server.controller;
 
 import gdgrvce.iudex.server.dto.SubmissionRequest;
 import gdgrvce.iudex.server.dto.SubmissionResponse;
+import gdgrvce.iudex.server.dto.SubmissionSource;
 import gdgrvce.iudex.server.service.SubmissionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -44,6 +45,13 @@ public class SubmissionController {
     public SubmissionResponse get(@PathVariable UUID submissionId,
                                   @AuthenticationPrincipal UserDetails principal) {
         return submissionService.get(submissionId, principal);
+    }
+
+    /** The source code, kept only for each contestant's latest attempt at a problem. */
+    @GetMapping("/submissions/{submissionId}/source")
+    public SubmissionSource source(@PathVariable UUID submissionId,
+                                   @AuthenticationPrincipal UserDetails principal) {
+        return submissionService.source(submissionId, principal);
     }
 
     /** The caller's own attempts at a problem, oldest first. */

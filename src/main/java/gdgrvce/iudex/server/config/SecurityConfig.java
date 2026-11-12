@@ -64,6 +64,9 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers("/auth/register", "/auth/login").permitAll();
+                    // The contestmaster page is static HTML; everything it does
+                    // goes through the token-checked API like any other client.
+                    auth.requestMatchers("/", "/index.html").permitAll();
                     if (h2ConsoleEnabled) {
                         auth.requestMatchers(h2ConsolePath + "/**").permitAll();
                     }

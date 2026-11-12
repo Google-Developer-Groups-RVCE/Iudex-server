@@ -84,6 +84,42 @@ class SubmissionApiIntegrationTest {
     @MockitoSpyBean
     private TestCaseCipher cipher;
 
+    // ---------- source code ----------
+
+    @Test
+    void onlyTheLatestAttemptKeepsItsSource() throws Exception {
+        Fixture fixture = runningContest();
+        String first = submitAndReturnId(fixture);
+        String second = submitAndReturnId(fixture);
+
+        mockMvc.perform(get("/api/submissions/" + second + "/source")
+                        .header("Authorization", "Bearer " + fixture.contestant))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceCode").value("print(input())"));
+        mockMvc.perform(get("/api/submissions/" + first + "/source")
+                        .header("Authorization", "Bearer " + fixture.contestant))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/submissions/" + second + "/source")
+                        .header("Authorization", "Bearer " + tokenFor(Role.CONTESTANT)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void rejectsOversizedSourceAndUnknownLanguages() throws Exception {
+        Fixture fixture = runningContest();
+        for (SubmissionRequest bad : List.of(
+                new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python",
+                        "x".repeat(65537), null, correctAnswers(fixture), null),
+                new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "cobol",
+                        "DISPLAY 1", null, correctAnswers(fixture), null))) {
+            mockMvc.perform(post("/api/submissions")
+                            .header("Authorization", "Bearer " + fixture.contestant)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(bad)))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
     // ---------- grading ----------
 
     @Test
@@ -92,6 +128,8 @@ class SubmissionApiIntegrationTest {
 
         mockMvc.perform(submit(fixture, correctAnswers(fixture), 42))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.language").value("python"))
                 .andExpect(jsonPath("$.passedTestCaseCount").value(2))
                 .andExpect(jsonPath("$.testCaseCount").value(2))
                 .andExpect(jsonPath("$.submissionNum").value(1))
@@ -226,7 +264,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), null, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), null, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isBadRequest());
     }
 
@@ -298,7 +336,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + outsider)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isForbidden());
     }
 
@@ -309,7 +347,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.owner)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isForbidden());
     }
 
@@ -319,7 +357,7 @@ class SubmissionApiIntegrationTest {
 
         mockMvc.perform(post("/api/submissions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -330,7 +368,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + fixture.contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum + 1, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum + 1, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isNotFound());
     }
 
@@ -346,7 +384,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + contestant)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(contestId), problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isConflict());
     }
 
@@ -376,7 +414,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + second)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(jsonPath("$.submissionNum").value(1));
     }
 
@@ -503,7 +541,7 @@ class SubmissionApiIntegrationTest {
         mockMvc.perform(post("/api/submissions")
                         .header("Authorization", "Bearer " + second)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, List.of(), null))))
+                        .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, List.of(), null))))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/contests/" + fixture.contestId + "/submissions")
@@ -605,7 +643,7 @@ class SubmissionApiIntegrationTest {
         return post("/api/submissions")
                 .header("Authorization", "Bearer " + fixture.contestant)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, results, clientDurationMs)));
+                .content(json(new SubmissionRequest(UUID.fromString(fixture.contestId), fixture.problemNum, "python", "print(input())", null, results, clientDurationMs)));
     }
 
     private String submitAndReturnId(Fixture fixture) throws Exception {
@@ -659,7 +697,7 @@ class SubmissionApiIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/contests/" + contestId + "/problems")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(new ProblemRequest(title, "statement body", "template body",
+                        .content(json(new ProblemRequest(title, "statement body", Map.of("python", "template body"),
                                 null, null, null))))
                 .andExpect(status().isCreated())
                 .andReturn();

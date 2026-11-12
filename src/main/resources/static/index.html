@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iudex - Contest Master</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 14px; margin: 16px; max-width: 1000px; }
+  table { border-collapse: collapse; margin: 8px 0; }
+  th, td { border: 1px solid #999; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  input, button, select { font-family: Arial, sans-serif; font-size: 14px; }
+  pre { background: #f4f4f4; border: 1px solid #ccc; padding: 8px; overflow-x: auto; }
+  fieldset { margin: 12px 0; }
+  .error { color: #b00; }
+  .ok { color: #070; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Iudex - Contest Master</h1>
+<p id="status"></p>
+
+<!-- Login -->
+<div id="login-view" class="hidden">
+  <form id="login-form">
+    <table>
+      <tr><td><label for="username">Username</label></td><td><input id="username" autocomplete="username" required></td></tr>
+      <tr><td><label for="password">Password</label></td><td><input id="password" type="password" autocomplete="current-password" required></td></tr>
+    </table>
+    <button type="submit">Log in</button>
+  </form>
+</div>
+
+<!-- Contest list -->
+<div id="list-view" class="hidden">
+  <p>Logged in as <b id="me-name"></b> (<span id="me-role"></span>). <button id="logout">Log out</button></p>
+
+  <h2>Your contests</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Start</th><th>End</th><th>Status</th><th></th></tr></thead>
+    <tbody id="contest-rows"></tbody>
+  </table>
+
+  <fieldset>
+    <legend>New contest</legend>
+    <form id="create-form">
+      <table>
+        <tr><td><label for="new-name">Name</label></td><td><input id="new-name" required size="40"></td></tr>
+        <tr><td><label for="new-start">Start</label></td><td><input id="new-start" type="datetime-local" required></td></tr>
+        <tr><td><label for="new-end">End</label></td><td><input id="new-end" type="datetime-local" required></td></tr>
+      </table>
+      <button type="submit">Create contest</button>
+    </form>
+  </fieldset>
+</div>
+
+<!-- One contest -->
+<div id="contest-view" class="hidden">
+  <p><button id="back">&laquo; All contests</button></p>
+  <h2 id="contest-title"></h2>
+  <p>ID: <code id="contest-id"></code></p>
+
+  <fieldset>
+    <legend>Contest window</legend>
+    <form id="edit-form">
+      <table>
+        <tr><td><label for="edit-name">Name</label></td><td><input id="edit-name" required size="40"></td></tr>
+        <tr><td><label for="edit-start">Start</label></td><td><input id="edit-start" type="datetime-local" required></td></tr>
+        <tr><td><label for="edit-end">End</label></td><td><input id="edit-end" type="datetime-local" required></td></tr>
+      </table>
+      <button type="submit">Save</button>
+      <button type="button" id="delete-contest">Delete contest</button>
+    </form>
+  </fieldset>
+
+  <h3>Problems</h3>
+  <p>Problems and test cases can only be changed before the contest starts. The reference solution can be changed at any time.</p>
+  <table>
+    <thead><tr><th>#</th><th>Title</th><th>Test cases</th><th>Templates</th><th>Solution</th><th>Update from .json</th><th></th></tr></thead>
+    <tbody id="problem-rows"></tbody>
+  </table>
+
+  <fieldset>
+    <legend>Add a problem from a .json file</legend>
+    <input type="file" id="new-problem-file" accept=".json,application/json">
+    <button id="add-problem">Add problem</button>
+    <details>
+      <summary>File format</summary>
+      <p>Only <code>title</code> is required when adding. When updating, only the fields present are changed;
+        <code>sampleTestCases</code> and <code>hiddenTestCases</code> are replaced together (a missing list becomes empty).
+        Template languages: <code>cpp</code>, <code>java</code>, <code>python</code>; an empty template removes that language.</p>
+<pre>{
+  "title": "Sum",
+  "statement": "Read A and B, print A + B.",
+  "timeLimitMs": 1000,
+  "memoryLimitMb": 256,
+  "score": 100,
+  "solutionTemplates": {
+    "python": "a, b = map(int, input().split())\n# print the answer\n",
+    "cpp": "#include &lt;iostream&gt;\nint main() {\n    long long a, b;\n    std::cin &gt;&gt; a &gt;&gt; b;\n}\n"
+  },
+  "sampleTestCases": [
+    { "input": "3 5\n", "output": "8\n" }
+  ],
+  "hiddenTestCases": [
+    { "input": "-10 25\n", "output": "15\n" },
+    { "input": "100 200\n", "output": "300\n" }
+  ],
+  "solution": {
+    "language": "python",
+    "sourceCode": "a, b = map(int, input().split())\nprint(a + b)\n"
+  }
+}</pre>
+    </details>
+  </fieldset>
+
+  <h3>Participants</h3>
+  <p id="participants"></p>
+
+  <h3>Submissions</h3>
+  <p><button id="refresh-submissions">Refresh</button></p>
+  <table>
+    <thead><tr><th>Received</th><th>User</th><th>Problem</th><th>Attempt</th><th>Language</th><th>Verdict</th><th>Passed</th><th>Message</th><th></th></tr></thead>
+    <tbody id="submission-rows"></tbody>
+  </table>
+  <pre id="source-view" class="hidden"></pre>
+</div>
+
+<script>
+"use strict";
+
+// ---------- API ----------
+
+const TOKEN_KEY = "iudex.cm.token";
+let token = null;
+let me = null;
+let current = null; // the contest being viewed
+
+function readToken() {
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
+}
+function writeToken(value) {
+  try {
+    if (value) sessionStorage.setItem(TOKEN_KEY, value); else sessionStorage.removeItem(TOKEN_KEY);
+  } catch (e) { /* storage unavailable: the session just won't survive a reload */ }
+}
+
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+async function api(method, path, body) {
+  const headers = {};
+  if (token) headers["Authorization"] = "Bearer " + token;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, {
+    method: method,
+    headers: headers,
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = text; }
+  }
+  if (!response.ok) {
+    if (response.status === 401 && path !== "/auth/login") {
+      signOut("Your session has ended. Please log in again.");
+    }
+    let message = (data && data.error) ? data.error : ("HTTP " + response.status);
+    if (data && data.fields) {
+      message += " (" + Object.entries(data.fields).map(([k, v]) => k + ": " + v).join("; ") + ")";
+    }
+    throw new ApiError(response.status, message);
+  }
+  return data;
+}
+
+// ---------- helpers ----------
+
+function $(id) { return document.getElementById(id); }
+
+function el(tag, text) {
+  const node = document.createElement(tag);
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+function row(cells) {
+  const tr = el("tr");
+  for (const cell of cells) {
+    const td = el("td");
+    if (cell instanceof Node) td.appendChild(cell); else td.textContent = cell === null || cell === undefined ? "" : String(cell);
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+function button(label, onClick) {
+  const b = el("button", label);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function setStatus(message, isError) {
+  const status = $("status");
+  status.textContent = message || "";
+  status.className = isError ? "error" : "ok";
+  if (isError && message) status.scrollIntoView({ block: "nearest" });
+}
+
+function show(view) {
+  for (const id of ["login-view", "list-view", "contest-view"]) {
+    $(id).classList.toggle("hidden", id !== view);
+  }
+}
+
+function formatTime(iso) {
+  const date = new Date(iso);
+  return isNaN(date) ? iso : date.toLocaleString();
+}
+
+// <input type="datetime-local"> works in local time without an offset.
+function toLocalInput(iso) {
+  const date = new Date(iso);
+  if (isNaN(date)) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+    + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+}
+function fromLocalInput(value) {
+  return new Date(value).toISOString();
+}
+
+function contestStatus(contest) {
+  const now = Date.now();
+  if (now < new Date(contest.startTime).getTime()) return "upcoming";
+  if (now < new Date(contest.endTime).getTime()) return "running";
+  return "ended";
+}
+
+async function readJsonFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) throw new Error("Choose a .json file first.");
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (e) {
+    throw new Error(file.name + " is not valid JSON: " + e.message);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error(file.name + " must contain a JSON object.");
+  }
+  return data;
+}
+
+// ---------- session ----------
+
+async function signIn(username, password) {
+  const auth = await api("POST", "/auth/login", { username: username, password: password });
+  token = auth.token;
+  writeToken(token);
+  await start();
+}
+
+function signOut(message) {
+  token = null;
+  me = null;
+  writeToken(null);
+  show("login-view");
+  setStatus(message || "", Boolean(message));
+}
+
+async function start() {
+  me = await api("GET", "/auth/me");
+  if (me.role !== "CONTESTMASTER" && me.role !== "ADMIN") {
+    signOut("This page is for contest masters. Ask an administrator to give your account that role.");
+    return;
+  }
+  $("me-name").textContent = me.username;
+  $("me-role").textContent = me.role.toLowerCase();
+  await showContests();
+}
+
+// ---------- contest list ----------
+
+async function showContests() {
+  current = null;
+  const contests = (await api("GET", "/api/contests")).filter((c) => c.hostId === me.userId);
+  const rows = $("contest-rows");
+  rows.replaceChildren();
+  if (contests.length === 0) {
+    const tr = row(["You have not created any contests yet."]);
+    tr.firstChild.colSpan = 5;
+    rows.appendChild(tr);
+  }
+  for (const contest of contests) {
+    rows.appendChild(row([
+      contest.contestName,
+      formatTime(contest.startTime),
+      formatTime(contest.endTime),
+      contestStatus(contest),
+      button("Open", () => run(() => showContest(contest.contestId)))
+    ]));
+  }
+  show("list-view");
+}
+
+async function createContest() {
+  const contest = await api("POST", "/api/contests", {
+    contestName: $("new-name").value,
+    startTime: fromLocalInput($("new-start").value),
+    endTime: fromLocalInput($("new-end").value)
+  });
+  $("create-form").reset();
+  setStatus("Created contest '" + contest.contestName + "'.");
+  await showContest(contest.contestId);
+}
+
+// ---------- one contest ----------
+
+async function showContest(contestId) {
+  current = await api("GET", "/api/contests/" + contestId);
+  $("contest-title").textContent = current.contestName + " (" + contestStatus(current) + ")";
+  $("contest-id").textContent = current.contestId;
+  $("edit-name").value = current.contestName;
+  $("edit-start").value = toLocalInput(current.startTime);
+  $("edit-end").value = toLocalInput(current.endTime);
+  $("source-view").classList.add("hidden");
+  show("contest-view");
+  await Promise.all([loadProblems(), loadParticipants(), loadSubmissions()]);
+}
+
+async function saveContest() {
+  current = await api("PATCH", "/api/contests/" + current.contestId, {
+    contestName: $("edit-name").value,
+    startTime: fromLocalInput($("edit-start").value),
+    endTime: fromLocalInput($("edit-end").value)
+  });
+  setStatus("Saved.");
+  await showContest(current.contestId);
+}
+
+async function deleteContest() {
+  if (!confirm("Delete '" + current.contestName + "' with all its problems, participants and submissions? This cannot be undone.")) return;
+  await api("DELETE", "/api/contests/" + current.contestId);
+  setStatus("Deleted contest '" + current.contestName + "'.");
+  await showContests();
+}
+
+function problemPath(problemNum) {
+  return "/api/contests/" + current.contestId + "/problems/" + problemNum;
+}
+
+async function loadProblems() {
+  const rows = $("problem-rows");
+  rows.replaceChildren();
+  const summaries = await api("GET", "/api/contests/" + current.contestId + "/problems");
+  if (summaries.length === 0) {
+    const tr = row(["No problems yet."]);
+    tr.firstChild.colSpan = 7;
+    rows.appendChild(tr);
+    return;
+  }
+  for (const summary of summaries) {
+    const num = summary.problemNum;
+    const problem = await api("GET", problemPath(num));
+    let hasSolution = "no";
+    try {
+      const solution = await api("GET", problemPath(num) + "/solution");
+      hasSolution = "yes (" + solution.language + ")";
+    } catch (e) {
+      if (e.status !== 404) hasSolution = "? (" + e.message + ")";
+    }
+
+    const file = el("input");
+    file.type = "file";
+    file.accept = ".json,application/json";
+    const update = el("span");
+    update.append(file, " ", button("Upload", () => run(async () => {
+      await applyProblemFile(await readJsonFile(file), num);
+    })));
+
+    rows.appendChild(row([
+      num,
+      summary.title,
+      summary.testCaseCount + " (" + problem.sampleTestCases.length + " sample)",
+      Object.keys(problem.solutionTemplates || {}).join(", ") || "none",
+      hasSolution,
+      update,
+      button("Delete", () => run(async () => {
+        if (!confirm("Delete problem " + num + " (" + summary.title + ") and its submissions?")) return;
+        await api("DELETE", problemPath(num));
+        setStatus("Deleted problem " + num + ".");
+        await loadProblems();
+      }))
+    ]));
+  }
+}
+
+/**
+ * Applies one problem file: create or update the problem, then its test
+ * cases, then its reference solution. Stops at the first failure and says
+ * which steps already went through.
+ */
+async function applyProblemFile(data, problemNum) {
+  const fields = ["title", "statement", "solutionTemplates", "timeLimitMs", "memoryLimitMb", "score"];
+  const request = {};
+  for (const field of fields) request[field] = data[field] === undefined ? null : data[field];
+  const done = [];
+
+  try {
+    if (problemNum === null) {
+      if (!data.title) throw new Error("The file needs a \"title\" to add a problem.");
+      const created = await api("POST", "/api/contests/" + current.contestId + "/problems", request);
+      problemNum = created.problemNum;
+      done.push("created problem " + problemNum);
+    } else if (fields.some((field) => data[field] !== undefined)) {
+      await api("PATCH", problemPath(problemNum), request);
+      done.push("updated problem " + problemNum);
+    }
+
+    if (data.sampleTestCases !== undefined || data.hiddenTestCases !== undefined) {
+      const result = await api("PUT", problemPath(problemNum) + "/testcases", {
+        sampleTestCases: data.sampleTestCases || [],
+        hiddenTestCases: data.hiddenTestCases || []
+      });
+      done.push(result.testCaseCount + " test case(s) stored");
+    }
+
+    if (data.solution !== undefined && data.solution !== null) {
+      await api("PUT", problemPath(problemNum) + "/solution", data.solution);
+      done.push("reference solution stored");
+    }
+
+    setStatus((done.join(", ") || "nothing to change") + ".");
+  } catch (e) {
+    const before = done.length ? " (already done: " + done.join(", ") + ")" : "";
+    throw new Error(e.message + before);
+  } finally {
+    await loadProblems();
+  }
+}
+
+async function loadParticipants() {
+  const participants = await api("GET", "/api/contests/" + current.contestId + "/registrations");
+  $("participants").textContent = participants.length === 0
+    ? "Nobody has registered yet."
+    : participants.length + " registered: " + participants.map((p) => p.username).join(", ");
+}
+
+async function loadSubmissions() {
+  const submissions = await api("GET", "/api/contests/" + current.contestId + "/submissions");
+  const rows = $("submission-rows");
+  rows.replaceChildren();
+  if (submissions.length === 0) {
+    const tr = row(["No submissions yet."]);
+    tr.firstChild.colSpan = 9;
+    rows.appendChild(tr);
+  }
+  for (const s of submissions.slice().reverse()) {
+    rows.appendChild(row([
+      formatTime(s.receivedAt),
+      s.username,
+      s.problemNum,
+      s.submissionNum,
+      s.language,
+      s.verdict,
+      s.passedTestCaseCount + "/" + s.testCaseCount,
+      s.message,
+      button("Source", () => run(async () => {
+        const view = $("source-view");
+        try {
+          const source = await api("GET", "/api/submissions/" + s.submissionId + "/source");
+          view.textContent = "// " + s.username + ", problem " + s.problemNum + ", attempt " + s.submissionNum
+            + " (" + source.language + ")\n" + source.sourceCode;
+        } catch (e) {
+          view.textContent = e.message;
+        }
+        view.classList.remove("hidden");
+        view.scrollIntoView();
+      }))
+    ]));
+  }
+}
+
+// ---------- wiring ----------
+
+// Runs an action, reporting any failure in the status line.
+async function run(action) {
+  try {
+    await action();
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+function onSubmit(id, action) {
+  $(id).addEventListener("submit", (event) => {
+    event.preventDefault();
+    run(action);
+  });
+}
+
+onSubmit("login-form", async () => {
+  setStatus("");
+  await signIn($("username").value, $("password").value);
+  $("password").value = "";
+});
+onSubmit("create-form", createContest);
+onSubmit("edit-form", saveContest);
+$("delete-contest").addEventListener("click", () => run(deleteContest));
+$("back").addEventListener("click", () => run(showContests));
+$("refresh-submissions").addEventListener("click", () => run(loadSubmissions));
+$("add-problem").addEventListener("click", () => run(async () => {
+  const input = $("new-problem-file");
+  await applyProblemFile(await readJsonFile(input), null);
+  input.value = "";
+}));
+$("logout").addEventListener("click", () => run(async () => {
+  try { await api("POST", "/auth/logout"); } catch (e) { /* signed out locally regardless */ }
+  signOut("Logged out.");
+}));
+
+token = readToken();
+if (token) {
+  run(start).then(() => { if (!me) show("login-view"); });
+} else {
+  show("login-view");
+}
+</script>
+</body>
+</html>
