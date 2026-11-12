@@ -39,6 +39,16 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request));
     }
 
+    /**
+     * Signs the user out everywhere: the presented token and every other one
+     * issued to the same account stop working immediately.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal UserDetails principal) {
+        authService.logout(principal.getUsername());
+        return ResponseEntity.noContent().build();
+    }
+
     /** Returns the user that the security filter found in the JWT. */
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal UserDetails principal) {

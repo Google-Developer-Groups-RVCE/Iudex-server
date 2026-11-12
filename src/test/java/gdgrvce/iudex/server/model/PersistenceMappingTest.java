@@ -208,6 +208,44 @@ class PersistenceMappingTest {
                 .count());
     }
 
+    @Test
+    void newUserStartsAtTokenVersionZero() {
+        User user = saveUser("fresh_version", Role.CONTESTANT);
+
+        reload();
+
+        assertEquals(0, userRepository.findById(user.getUserId()).orElseThrow().getTokenVersion());
+    }
+
+    @Test
+    void tokenVersionRoundTrips() {
+        User user = saveUser("set_version", Role.CONTESTANT);
+        user.setTokenVersion(7);
+        userRepository.save(user);
+
+        reload();
+
+        assertEquals(7, userRepository.findById(user.getUserId()).orElseThrow().getTokenVersion());
+    }
+
+    @Test
+    void incrementTokenVersionTouchesOnlyTheNamedUser() {
+        User target = saveUser("bump_target", Role.CONTESTANT);
+        User bystander = saveUser("bump_bystander", Role.CONTESTANT);
+        reload();
+
+        assertEquals(1, userRepository.incrementTokenVersion("bump_target"));
+        reload();
+
+        assertEquals(1, userRepository.findById(target.getUserId()).orElseThrow().getTokenVersion());
+        assertEquals(0, userRepository.findById(bystander.getUserId()).orElseThrow().getTokenVersion());
+    }
+
+    @Test
+    void incrementTokenVersionForUnknownUserChangesNothing() {
+        assertEquals(0, userRepository.incrementTokenVersion("no_such_user"));
+    }
+
     private void reload() {
         entityManager.flush();
         entityManager.clear();

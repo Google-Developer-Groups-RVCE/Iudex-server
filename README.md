@@ -132,3 +132,14 @@ field.
 does not apply the registration rules: an account created under earlier rules
 must still be able to sign in, and rejecting a password for being too short
 would describe the policy to whoever is guessing.
+
+## Logging out
+
+`POST /auth/logout` with a valid Bearer token returns `204` and revokes
+**every** token issued to that account so far, on every device, not just the
+one presented. Each user has a token version that is copied into the tokens
+they are issued; logout increments it, and the JWT filter refuses any token
+whose version no longer matches. Logging in again issues a working token.
+
+Tokens issued before this mechanism existed carry no version and are refused,
+so upgrading a running deployment signs everyone out once.
